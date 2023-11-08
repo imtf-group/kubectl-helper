@@ -1,0 +1,6 @@
+[MAIN]
+
+max-branches=20
+max-locals=25
+disable=too-many-arguments,missing-function-docstring,missing-module-docstring
+

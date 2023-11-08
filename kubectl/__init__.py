@@ -4,38 +4,42 @@ import os.path
 import tarfile
 import glob
 import re
+import tempfile
 import kubernetes.client
 import kubernetes.config
 import kubernetes.stream
-import tempfile
 
 K8S_OBJECTS = [
-    dict(name='Namespace', aliases=['ns'], apiVersion='v1',
-         apiName='CoreV1Api', namespaced=False),
-    dict(name='Pod', aliases=['po'], apiVersion='v1',
-         apiName='CoreV1Api', namespaced=True),
-    dict(name='Secret', aliases=[], apiVersion='v1',
-         apiName='CoreV1Api', namespaced=True),
-    dict(name='ConfigMap', aliases=['cm'], apiVersion='v1',
-         apiName='CoreV1Api', namespaced=True),
-    dict(name='Service', aliases=['svc'], apiVersion='v1',
-         apiName='CoreV1Api', namespaced=True),
-    dict(name='ServiceAccount', aliases=['sa'], apiVersion='v1',
-         apiName='CoreV1Api', namespaced=True),
-    dict(name='Deployment', aliases=['deploy'], apiVersion='apps/v1',
-         apiName='AppsV1Api', namespaced=True),
-    dict(name='StatefulSet', aliases=['sts'], apiVersion='apps/v1',
-         apiName='AppsV1Api', namespaced=True),
-    dict(name='DaemonSet', aliases=['ds'], apiVersion='apps/v1',
-         apiName='AppsV1Api', namespaced=True),
-    dict(name='ReplicaSet', aliases=['rs'], apiVersion='apps/v1',
-         apiName='AppsV1Api', namespaced=True),
-    dict(name='CronJob', aliases=['cj'], apiVersion='batch/v1',
-         apiName='BatchV1Api', namespaced=True),
-    dict(name='Job', aliases=[], apiVersion='batch/v1',
-         apiName='BatchV1Api', namespaced=True),
-    dict(name='Ingress', aliases=['ing'], apiVersion='networking.k8s.io/v1',
-         apiName='NetworkingV1Api', namespaced=True)
+    {'name': 'Namespace', 'aliases': ['ns'], 'apiVersion':'v1',
+     'apiName': 'CoreV1Api', 'namespaced': False},
+    {'name': 'Pod', 'aliases': ['po'], 'apiVersion':'v1',
+     'apiName': 'CoreV1Api', 'namespaced': True},
+    {'name': 'Secret', 'aliases': [], 'apiVersion':'v1',
+     'apiName': 'CoreV1Api', 'namespaced': True},
+    {'name': 'ConfigMap', 'aliases': ['cm'], 'apiVersion':'v1',
+     'apiName': 'CoreV1Api', 'namespaced': True},
+    {'name': 'Service', 'aliases': ['svc'], 'apiVersion':'v1',
+     'apiName': 'CoreV1Api', 'namespaced': True},
+    {'name': 'ServiceAccount', 'aliases': ['sa'], 'apiVersion':'v1',
+     'apiName': 'CoreV1Api', 'namespaced': True},
+    {'name': 'PersistentVolumeClaim', 'aliases': ['pvc'], 'apiVersion':'v1',
+     'apiName': 'CoreV1Api', 'namespaced': True},
+    {'name': 'PersistentVolume', 'aliases': ['pv'], 'apiVersion':'v1',
+     'apiName': 'CoreV1Api', 'namespaced': False},
+    {'name': 'Deployment', 'aliases': ['deploy'], 'apiVersion':'apps/v1',
+     'apiName': 'AppsV1Api', 'namespaced': True},
+    {'name': 'StatefulSet', 'aliases': ['sts'], 'apiVersion':'apps/v1',
+     'apiName': 'AppsV1Api', 'namespaced': True},
+    {'name': 'DaemonSet', 'aliases': ['ds'], 'apiVersion':'apps/v1',
+     'apiName': 'AppsV1Api', 'namespaced': True},
+    {'name': 'ReplicaSet', 'aliases': ['rs'], 'apiVersion':'apps/v1',
+     'apiName': 'AppsV1Api', 'namespaced': True},
+    {'name': 'CronJob', 'aliases': ['cj'], 'apiVersion':'batch/v1',
+     'apiName': 'BatchV1Api', 'namespaced': True},
+    {'name': 'Job', 'aliases': [], 'apiVersion':'batch/v1',
+     'apiName': 'BatchV1Api', 'namespaced': True},
+    {'name': 'Ingress', 'aliases': ['ing'], 'apiVersion':'networking.k8s.io/v1',
+     'apiName': 'NetworkingV1', 'namespaced': True}
 ]
 
 
@@ -49,7 +53,7 @@ def load_kubeconfig():
 
 
 def _api_call(api_resource, verb, resource, **opts):
-    ftn = "{0}_{1}".format(verb, resource)
+    ftn = f"{verb}_{resource}"
     name = None
     if verb == 'list' and 'name' in opts:
         name = opts['name']
@@ -58,7 +62,8 @@ def _api_call(api_resource, verb, resource, **opts):
     try:
         objs = getattr(api, ftn)(**opts)
     except kubernetes.client.rest.ApiException as err:
-        raise ValueError(err.body)
+        raise ValueError(err.body) from err
+    # pylint: disable=no-else-return
     if verb == 'list':
         if 'to_dict' in dir(objs):
             objs = objs.to_dict()['items']
@@ -69,13 +74,11 @@ def _api_call(api_resource, verb, resource, **opts):
         for obj in objs:
             if obj['metadata']['name'] == name:
                 return obj
-        else:
-            return {}
+        return {}
     else:
         if 'to_dict' in dir(objs):
             return objs.to_dict()
-        else:
-            return objs
+        return objs
 
 
 def get(obj, name=None, namespace=None, labels=None):
@@ -85,39 +88,39 @@ def get(obj, name=None, namespace=None, labels=None):
                 obj == k8s_obj['name'].lower() + 's' or \
                 obj in k8s_obj['aliases']:
             ftn = camel_to_snake(k8s_obj['name'])
-            opts = dict(label_selector=labels, name=name)
+            opts = {"label_selector": labels, "name": name}
             if k8s_obj['namespaced'] is True:
                 ftn = 'namespaced_' + ftn
                 opts['namespace'] = namespace
             return _api_call(k8s_obj['apiName'], 'list', ftn, **opts)
     global_api = kubernetes.client.ApisApi()
     api = kubernetes.client.CustomObjectsApi()
-    api_found = False
+    resource = []
     for api_group in global_api.get_api_versions().to_dict()['groups']:
         for res in api.get_api_resources(
                 api_group['name'],
                 api_group['preferred_version']['version']).to_dict()['resources']:
             if res['name'] == obj or res['name'] == obj + 's' or \
                     (res['short_names'] and obj in res['short_names']):
-                api_found = True
+                resource = res
                 break
-        if api_found is True:
+        if resource:
             break
     else:
         raise ValueError(f'error: the server doesn\'t have a resource type "{obj}"')
-    if 'get' not in res['verbs']:
+    if 'get' not in resource['verbs']:
         raise ValueError(
             'Error from server (MethodNotAllowed): '
             'the server does not allow this method on the requested resource')
-    opts = dict(name=name, label_selector=labels)
-    if res['namespaced'] is True:
+    opts = {"label_selector": labels, "name": name}
+    if resource['namespaced'] is True:
         scope = 'namespaced'
         opts['namespace'] = namespace
     else:
         scope = 'cluster'
     return _api_call('CustomObjectsApi',
                      'list', f'{scope}_custom_object',
-                     plural=res['name'],
+                     plural=resource['name'],
                      group=api_group['name'],
                      version=api_group['preferred_version']['version'],
                      **opts)
@@ -130,39 +133,39 @@ def delete(obj, name, namespace=None):
                 obj == k8s_obj['name'].lower() + 's' or \
                 obj in k8s_obj['aliases']:
             ftn = camel_to_snake(k8s_obj['name'])
-            opts = dict(name=name)
+            opts = {"name": name}
             if k8s_obj['namespaced'] is True:
                 ftn = 'namespaced_' + ftn
                 opts['namespace'] = namespace
             return _api_call(k8s_obj['apiName'], 'delete', ftn, **opts)
     global_api = kubernetes.client.ApisApi()
     api = kubernetes.client.CustomObjectsApi()
-    api_found = False
+    resource = []
     for api_group in global_api.get_api_versions().to_dict()['groups']:
         for res in api.get_api_resources(
                 api_group['name'],
                 api_group['preferred_version']['version']).to_dict()['resources']:
             if res['name'] == obj or res['name'] == obj + 's' or \
                     (res['short_names'] and obj in res['short_names']):
-                api_found = True
+                resource = res
                 break
-        if api_found is True:
+        if resource:
             break
     else:
         raise ValueError(f'error: the server doesn\'t have a resource type "{obj}"')
-    if 'delete' not in res['verbs']:
+    if 'delete' not in resource['verbs']:
         raise ValueError(
             'Error from server (MethodNotAllowed): '
             'the server does not allow this method on the requested resource')
-    opts = dict(name=name)
-    if res['namespaced'] is True:
+    opts = {"name": name}
+    if resource['namespaced'] is True:
         scope = 'namespaced'
         opts['namespace'] = namespace
     else:
         scope = 'cluster'
     return _api_call('CustomObjectsApi',
                      'delete', f'{scope}_custom_object',
-                     plural=res['name'],
+                     plural=resource['name'],
                      group=api_group['name'],
                      version=api_group['preferred_version']['version'],
                      **opts)
@@ -185,49 +188,53 @@ def create(obj, body, name=None, namespace=None):
             if 'kind' not in body:
                 body['kind'] = k8s_obj['name']
             ftn = camel_to_snake(k8s_obj['name'])
-            opts = dict(body=body)
+            opts = {"body": body}
             if k8s_obj['namespaced'] is True:
                 ftn = 'namespaced_' + ftn
                 opts['namespace'] = namespace
             return _api_call(k8s_obj['apiName'], 'create', ftn, **opts)
     global_api = kubernetes.client.ApisApi()
     api = kubernetes.client.CustomObjectsApi()
-    api_found = False
+    resource = []
     for api_group in global_api.get_api_versions().to_dict()['groups']:
         for res in api.get_api_resources(
                 api_group['name'],
                 api_group['preferred_version']['version']).to_dict()['resources']:
             if res['name'] == obj or res['name'] == obj + 's' or \
                     (res['short_names'] and obj in res['short_names']):
-                api_found = True
+                resource = res
                 break
-        if api_found is True:
+        if resource:
             break
     else:
         raise ValueError(f'error: the server doesn\'t have a resource type "{obj}"')
-    if 'create' not in res['verbs']:
+    if 'create' not in resource['verbs']:
         raise ValueError(
             'Error from server (MethodNotAllowed): '
             'the server does not allow this method on the requested resource')
     if 'apiVersion' not in body:
         body['apiVersion'] = api_group['preferred_version']['group_version']
     if 'kind' not in body:
-        body['kind'] = res['kind']
-    opts = dict(body=body)
-    if res['namespaced'] is True:
+        body['kind'] = resource['kind']
+    opts = {"body": body}
+    if resource['namespaced'] is True:
         scope = 'namespaced'
         opts['namespace'] = namespace
     else:
         scope = 'cluster'
     return _api_call('CustomObjectsApi',
                      'create', f'{scope}_custom_object',
-                     plural=res['name'],
+                     plural=resource['name'],
                      group=api_group['name'],
                      version=api_group['preferred_version']['version'],
                      **opts)
 
 
-def run(name, image, namespace=None, annotations={}, labels={}, env={}, restart='Always'):
+def run(name, image, namespace=None, annotations=None,
+        labels=None, env=None, restart='Always'):
+    annotations = annotations or {}
+    labels = labels or {}
+    env = env or {}
     namespace = namespace or 'default'
     labels = labels or {'run': name}
     body = {
@@ -241,6 +248,55 @@ def run(name, image, namespace=None, annotations={}, labels={}, env={}, restart=
     body['spec']['containers'][0]['env'] = envs
     return _api_call('CoreV1Api', 'create', 'namespaced_pod',
                      namespace=namespace, body=body)
+
+
+def annotate(obj, name: str, namespace: str = None, **annotations) -> dict:
+    namespace = namespace or 'default'
+    resp = get(obj, name, namespace)
+    current = resp['metadata'].get('annotations', {})
+    current.update(annotations)
+    resp['metadata']['annotations'] = current
+    for k8s_obj in K8S_OBJECTS:
+        if obj == k8s_obj['name'].lower() or \
+                obj == k8s_obj['name'].lower() + 's' or \
+                obj in k8s_obj['aliases']:
+            ftn = camel_to_snake(k8s_obj['name'])
+            opts = {"name": name, "body": resp}
+            if k8s_obj['namespaced'] is True:
+                ftn = 'namespaced_' + ftn
+                opts['namespace'] = namespace
+            return _api_call(k8s_obj['apiName'], 'patch', ftn, **opts)
+    global_api = kubernetes.client.ApisApi()
+    api = kubernetes.client.CustomObjectsApi()
+    resource = []
+    for api_group in global_api.get_api_versions().to_dict()['groups']:
+        for res in api.get_api_resources(
+                api_group['name'],
+                api_group['preferred_version']['version']).to_dict()['resources']:
+            if res['name'] == obj or res['name'] == obj + 's' or \
+                    (res['short_names'] and obj in res['short_names']):
+                resource = res
+                break
+        if resource:
+            break
+    else:
+        raise ValueError(f'error: the server doesn\'t have a resource type "{obj}"')
+    if 'patch' not in resource['verbs']:
+        raise ValueError(
+            'Error from server (MethodNotAllowed): '
+            'the server does not allow this method on the requested resource')
+    opts = {"name": name, "body": resp}
+    if resource['namespaced'] is True:
+        scope = 'namespaced'
+        opts['namespace'] = namespace
+    else:
+        scope = 'cluster'
+    return _api_call('CustomObjectsApi',
+                     'patch', f'{scope}_custom_object',
+                     plural=resource['name'],
+                     group=api_group['name'],
+                     version=api_group['preferred_version']['version'],
+                     **opts)
 
 
 def logs(name: str, namespace: str = None, container: str = None) -> str:
@@ -281,44 +337,49 @@ def apply(obj, body, name=None, namespace=None):
             if 'kind' not in body:
                 body['kind'] = k8s_obj['name']
             ftn = camel_to_snake(k8s_obj['name'])
-            opts = dict(name=name, body=body)
+            opts = {"name": name, "body": body}
             if k8s_obj['namespaced'] is True:
                 ftn = 'namespaced_' + ftn
                 opts['namespace'] = namespace
             return _api_call(k8s_obj['apiName'], 'patch', ftn, **opts)
     global_api = kubernetes.client.ApisApi()
     api = kubernetes.client.CustomObjectsApi()
-    api_found = False
+    resource = []
     for api_group in global_api.get_api_versions().to_dict()['groups']:
         for res in api.get_api_resources(
                 api_group['name'],
                 api_group['preferred_version']['version']).to_dict()['resources']:
             if res['name'] == obj or res['name'] == obj + 's' or \
                     (res['short_names'] and obj in res['short_names']):
-                api_found = True
+                resource = res
                 break
-        if api_found is True:
+        if resource:
             break
     else:
         raise ValueError(f'error: the server doesn\'t have a resource type "{obj}"')
-    if 'patch' not in res['verbs']:
+    if 'patch' not in resource['verbs']:
         raise ValueError(
             'Error from server (MethodNotAllowed): '
             'the server does not allow this method on the requested resource')
     if 'apiVersion' not in body:
         body['apiVersion'] = api_group['preferred_version']['group_version']
     if 'kind' not in body:
-        body['kind'] = res['kind']
+        body['kind'] = resource['kind']
+    opts = {"name": name, "body": body}
+    if resource['namespaced'] is True:
+        scope = 'namespaced'
+        opts['namespace'] = namespace
+    else:
+        scope = 'cluster'
     return _api_call('CustomObjectsApi',
-                     'patch', 'namespaced_custom_object',
-                     name=name,
-                     namespace=namespace,
-                     plural=res['name'],
+                     'patch', f'{scope}_custom_object',
+                     plural=resource['name'],
                      group=api_group['name'],
                      version=api_group['preferred_version']['version'],
-                     body=body)
+                     **opts)
 
 
+# pylint: disable=redefined-builtin
 def exec(name: str, command: list, namespace: str = None, container: str = None) -> str:
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
@@ -381,9 +442,9 @@ def cp(name: str, local_path: str, remote_path: str,
             while resp.is_open():
                 resp.update(timeout=1)
                 if resp.peek_stdout():
-                    print("STDOUT: %s" % resp.read_stdout())
+                    print(f"STDOUT: {resp.read_stdout()}")
                 if resp.peek_stderr():
-                    print("STDERR: %s" % resp.read_stderr())
+                    print(f"STDERR: {resp.read_stderr()}")
                 if commands:
                     c = commands.pop(0)
                     resp.write_stdin(c.decode())
@@ -408,7 +469,7 @@ def cp(name: str, local_path: str, remote_path: str,
                     out = resp.read_stdout()
                     tar_buffer.write(out.encode())
                 if resp.peek_stderr():
-                    print("STDERR: %s" % resp.read_stderr())
+                    print(f"STDERR: {resp.read_stderr()}")
             resp.close()
             tar_buffer.flush()
             tar_buffer.seek(0)
