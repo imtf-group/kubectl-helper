@@ -10,19 +10,32 @@ import kubernetes.stream
 import tempfile
 
 K8S_OBJECTS = [
-    dict(name='Namespace', aliases=['ns'], apiVersion='v1', apiName='CoreV1Api', namespaced=False),
-    dict(name='Pod', aliases=['po'], apiVersion='v1', apiName='CoreV1Api', namespaced=True),
-    dict(name='Secret', aliases=[], apiVersion='v1', apiName='CoreV1Api', namespaced=True),
-    dict(name='ConfigMap', aliases=['cm'], apiVersion='v1', apiName='CoreV1Api', namespaced=True),
-    dict(name='Service', aliases=['svc'], apiVersion='v1', apiName='CoreV1Api', namespaced=True),
-    dict(name='ServiceAccount', aliases=['sa'], apiVersion='v1', apiName='CoreV1Api', namespaced=True),
-    dict(name='Deployment', aliases=['deploy'], apiVersion='apps/v1', apiName='AppsV1Api', namespaced=True),
-    dict(name='StatefulSet', aliases=['sts'], apiVersion='apps/v1', apiName='AppsV1Api', namespaced=True),
-    dict(name='DaemonSet', aliases=['ds'], apiVersion='apps/v1', apiName='AppsV1Api', namespaced=True),
-    dict(name='ReplicaSet', aliases=['rs'], apiVersion='apps/v1', apiName='AppsV1Api', namespaced=True),
-    dict(name='CronJob', aliases=['cj'], apiVersion='batch/v1', apiName='BatchV1Api', namespaced=True),
-    dict(name='Job', aliases=[], apiVersion='batch/v1', apiName='BatchV1Api', namespaced=True),
-    dict(name='Ingress', aliases=['ing'], apiVersion='networking.k8s.io/v1', apiName='NetworkingV1Api', namespaced=True)
+    dict(name='Namespace', aliases=['ns'], apiVersion='v1',
+         apiName='CoreV1Api', namespaced=False),
+    dict(name='Pod', aliases=['po'], apiVersion='v1',
+         apiName='CoreV1Api', namespaced=True),
+    dict(name='Secret', aliases=[], apiVersion='v1',
+         apiName='CoreV1Api', namespaced=True),
+    dict(name='ConfigMap', aliases=['cm'], apiVersion='v1',
+         apiName='CoreV1Api', namespaced=True),
+    dict(name='Service', aliases=['svc'], apiVersion='v1',
+         apiName='CoreV1Api', namespaced=True),
+    dict(name='ServiceAccount', aliases=['sa'], apiVersion='v1',
+         apiName='CoreV1Api', namespaced=True),
+    dict(name='Deployment', aliases=['deploy'], apiVersion='apps/v1',
+         apiName='AppsV1Api', namespaced=True),
+    dict(name='StatefulSet', aliases=['sts'], apiVersion='apps/v1',
+         apiName='AppsV1Api', namespaced=True),
+    dict(name='DaemonSet', aliases=['ds'], apiVersion='apps/v1',
+         apiName='AppsV1Api', namespaced=True),
+    dict(name='ReplicaSet', aliases=['rs'], apiVersion='apps/v1',
+         apiName='AppsV1Api', namespaced=True),
+    dict(name='CronJob', aliases=['cj'], apiVersion='batch/v1',
+         apiName='BatchV1Api', namespaced=True),
+    dict(name='Job', aliases=[], apiVersion='batch/v1',
+         apiName='BatchV1Api', namespaced=True),
+    dict(name='Ingress', aliases=['ing'], apiVersion='networking.k8s.io/v1',
+         apiName='NetworkingV1Api', namespaced=True)
 ]
 
 
@@ -57,8 +70,7 @@ def _api_call(api_resource, verb, resource, **opts):
             if obj['metadata']['name'] == name:
                 return obj
         else:
-            plural = "{0}s".format(ftn.split('_', 2)[2])
-            raise ValueError(f'Error from server (NotFound): {plural} "{name}" not found')
+            return {}
     else:
         if 'to_dict' in dir(objs):
             return objs.to_dict()
@@ -84,8 +96,9 @@ def get(obj, name=None, namespace=None, labels=None):
     for api_group in global_api.get_api_versions().to_dict()['groups']:
         for res in api.get_api_resources(
                 api_group['name'],
-                api_group['preferred_version']['version']).to_dict()['resources']:  
-            if res['name'] == obj or (res['short_names'] and obj in res['short_names']):
+                api_group['preferred_version']['version']).to_dict()['resources']:
+            if res['name'] == obj or res['name'] == obj + 's' or \
+                    (res['short_names'] and obj in res['short_names']):
                 api_found = True
                 break
         if api_found is True:
@@ -96,14 +109,18 @@ def get(obj, name=None, namespace=None, labels=None):
         raise ValueError(
             'Error from server (MethodNotAllowed): '
             'the server does not allow this method on the requested resource')
+    opts = dict(name=name, label_selector=labels)
+    if res['namespaced'] is True:
+        scope = 'namespaced'
+        opts['namespace'] = namespace
+    else:
+        scope = 'cluster'
     return _api_call('CustomObjectsApi',
-         'list', 'namespaced_custom_object',
-         name=name,
-         namespace=namespace,
-         plural=res['name'],
-         group=api_group['name'],
-         version=api_group['preferred_version']['version'],
-         label_selector=labels)
+                     'list', f'{scope}_custom_object',
+                     plural=res['name'],
+                     group=api_group['name'],
+                     version=api_group['preferred_version']['version'],
+                     **opts)
 
 
 def delete(obj, name, namespace=None):
@@ -124,8 +141,9 @@ def delete(obj, name, namespace=None):
     for api_group in global_api.get_api_versions().to_dict()['groups']:
         for res in api.get_api_resources(
                 api_group['name'],
-                api_group['preferred_version']['version']).to_dict()['resources']:  
-            if res['name'] == obj or (res['short_names'] and obj in res['short_names']):
+                api_group['preferred_version']['version']).to_dict()['resources']:
+            if res['name'] == obj or res['name'] == obj + 's' or \
+                    (res['short_names'] and obj in res['short_names']):
                 api_found = True
                 break
         if api_found is True:
@@ -136,21 +154,28 @@ def delete(obj, name, namespace=None):
         raise ValueError(
             'Error from server (MethodNotAllowed): '
             'the server does not allow this method on the requested resource')
+    opts = dict(name=name)
+    if res['namespaced'] is True:
+        scope = 'namespaced'
+        opts['namespace'] = namespace
+    else:
+        scope = 'cluster'
     return _api_call('CustomObjectsApi',
-         'delete', 'namespaced_custom_object',
-         name=name,
-         namespace=namespace,
-         plural=res['name'],
-         group=api_group['name'],
-         version=api_group['preferred_version']['version'])
+                     'delete', f'{scope}_custom_object',
+                     plural=res['name'],
+                     group=api_group['name'],
+                     version=api_group['preferred_version']['version'],
+                     **opts)
 
 
 def create(obj, body, name=None, namespace=None):
-    namespace = namespace or 'default'
+    if 'metadata' not in body:
+        body['metadata'] = {}
     if name is not None:
-        if 'metadata' not in body:
-            body['metadata'] = {}
         body['metadata']['name'] = name
+    if namespace is not None:
+        body['metadata']['namespace'] = namespace
+    namespace = namespace or 'default'
     for k8s_obj in K8S_OBJECTS:
         if obj == k8s_obj['name'].lower() or \
                 obj == k8s_obj['name'].lower() + 's' or \
@@ -171,8 +196,9 @@ def create(obj, body, name=None, namespace=None):
     for api_group in global_api.get_api_versions().to_dict()['groups']:
         for res in api.get_api_resources(
                 api_group['name'],
-                api_group['preferred_version']['version']).to_dict()['resources']:  
-            if res['name'] == obj or (res['short_names'] and obj in res['short_names']):
+                api_group['preferred_version']['version']).to_dict()['resources']:
+            if res['name'] == obj or res['name'] == obj + 's' or \
+                    (res['short_names'] and obj in res['short_names']):
                 api_found = True
                 break
         if api_found is True:
@@ -187,13 +213,18 @@ def create(obj, body, name=None, namespace=None):
         body['apiVersion'] = api_group['preferred_version']['group_version']
     if 'kind' not in body:
         body['kind'] = res['kind']
+    opts = dict(body=body)
+    if res['namespaced'] is True:
+        scope = 'namespaced'
+        opts['namespace'] = namespace
+    else:
+        scope = 'cluster'
     return _api_call('CustomObjectsApi',
-         'create', 'namespaced_custom_object',
-         namespace=namespace,
-         plural=res['name'],
-         group=api_group['name'],
-         version=api_group['preferred_version']['version'],
-         body=body)
+                     'create', f'{scope}_custom_object',
+                     plural=res['name'],
+                     group=api_group['name'],
+                     version=api_group['preferred_version']['version'],
+                     **opts)
 
 
 def run(name, image, namespace=None, annotations={}, labels={}, env={}, restart='Always'):
@@ -203,16 +234,19 @@ def run(name, image, namespace=None, annotations={}, labels={}, env={}, restart=
         "apiVersion": "v1",
         "kind": "Pod",
         "metadata": {"labels": labels, "annotations": annotations, "name": name},
-        "spec": {"restartPolicy": restart, "containers": [{"image": image, "name": name}]}}
+        "spec": {
+            "restartPolicy": restart,
+            "containers": [{"image": image, "name": name}]}}
     envs = [{"name": k, "value": v} for k, v in env.items()]
     body['spec']['containers'][0]['env'] = envs
-    return _api_call('CoreV1Api', 'create', 'namespaced_pod', namespace=namespace, body=body)
+    return _api_call('CoreV1Api', 'create', 'namespaced_pod',
+                     namespace=namespace, body=body)
 
 
 def logs(name: str, namespace: str = None, container: str = None) -> str:
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
-    resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()    
+    resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
     if container is None:
         container = resp['spec']['containers'][0]['name']
     else:
@@ -258,8 +292,9 @@ def apply(obj, body, name=None, namespace=None):
     for api_group in global_api.get_api_versions().to_dict()['groups']:
         for res in api.get_api_resources(
                 api_group['name'],
-                api_group['preferred_version']['version']).to_dict()['resources']:  
-            if res['name'] == obj or (res['short_names'] and obj in res['short_names']):
+                api_group['preferred_version']['version']).to_dict()['resources']:
+            if res['name'] == obj or res['name'] == obj + 's' or \
+                    (res['short_names'] and obj in res['short_names']):
                 api_found = True
                 break
         if api_found is True:
@@ -275,19 +310,19 @@ def apply(obj, body, name=None, namespace=None):
     if 'kind' not in body:
         body['kind'] = res['kind']
     return _api_call('CustomObjectsApi',
-         'patch', 'namespaced_custom_object',
-         name=name,
-         namespace=namespace,
-         plural=res['name'],
-         group=api_group['name'],
-         version=api_group['preferred_version']['version'],
-         body=body)
+                     'patch', 'namespaced_custom_object',
+                     name=name,
+                     namespace=namespace,
+                     plural=res['name'],
+                     group=api_group['name'],
+                     version=api_group['preferred_version']['version'],
+                     body=body)
 
 
 def exec(name: str, command: list, namespace: str = None, container: str = None) -> str:
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
-    resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()    
+    resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
     if container is None:
         container = resp['spec']['containers'][0]['name']
     else:
@@ -306,7 +341,7 @@ def exec(name: str, command: list, namespace: str = None, container: str = None)
     return resp
 
 
-def cp(name: str, local_path: str, remote_path: str, 
+def cp(name: str, local_path: str, remote_path: str,
        namespace: str = None, container: str = None, mode='PUSH') -> bool:
     if mode not in ('PULL', 'PUSH'):
         raise ValueError(
@@ -314,7 +349,7 @@ def cp(name: str, local_path: str, remote_path: str,
             'or "PUSH" (to the container)')
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
-    resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()    
+    resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
     if container is None:
         container = resp['spec']['containers'][0]['name']
     else:
