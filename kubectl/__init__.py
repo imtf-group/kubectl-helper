@@ -5,9 +5,14 @@ import tarfile
 import glob
 import re
 import tempfile
+import urllib3
 import kubernetes.client
 import kubernetes.config
 import kubernetes.stream
+
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 
 K8S_OBJECTS = [
     {'name': 'Namespace', 'aliases': ['ns'], 'apiVersion':'v1',
