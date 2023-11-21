@@ -44,7 +44,15 @@ K8S_OBJECTS = [
     {'name': 'Job', 'aliases': [], 'apiVersion':'batch/v1',
      'apiName': 'BatchV1Api', 'namespaced': True},
     {'name': 'Ingress', 'aliases': ['ing'], 'apiVersion':'networking.k8s.io/v1',
-     'apiName': 'NetworkingV1', 'namespaced': True}
+     'apiName': 'NetworkingV1', 'namespaced': True},
+    {'name': 'Role', 'apiVersion': 'rbac.authorization.k8s.io/v1',
+     'aliases': [], 'apiName': 'RbacAuthorizationV1Api', 'namespaced': True},
+    {'name': 'RoleBinding', 'apiVersion': 'rbac.authorization.k8s.io/v1',
+     'aliases': [], 'apiName': 'RbacAuthorizationV1Api', 'namespaced': True},
+    {'name': 'ClusterRole', 'apiVersion': 'rbac.authorization.k8s.io/v1',
+     'aliases': [], 'apiName': 'RbacAuthorizationV1Api', 'namespaced': False},
+    {'name': 'ClusterRoleBinding', 'apiVersion': 'rbac.authorization.k8s.io/v1',
+     'aliases': [], 'apiName': 'RbacAuthorizationV1Api', 'namespaced': False}
 ]
 
 
@@ -322,11 +330,8 @@ def logs(name: str, namespace: str = None, container: str = None) -> str:
 
 
 def apply(obj, body, name=None, namespace=None):
-    try:
-        get(obj, name, namespace)
-    except ValueError as err:
-        if "not found" in err.args[0]:
-            create(obj, body, name, namespace)
+    if get(obj, name, namespace) == {}:
+        create(obj, body, name, namespace)
 
     namespace = namespace or 'default'
     if name is not None:
