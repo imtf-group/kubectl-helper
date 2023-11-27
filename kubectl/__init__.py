@@ -1,11 +1,12 @@
-# kubernetes 25.3.0
-
 import os.path
 import tarfile
 import glob
 import re
 import tempfile
+import time
+import json
 import urllib3
+import jsonpath_ng.ext as jp
 import kubernetes.client
 import kubernetes.config
 import kubernetes.stream
@@ -75,7 +76,12 @@ def _api_call(api_resource, verb, resource, **opts):
     try:
         objs = getattr(api, ftn)(**opts)
     except kubernetes.client.rest.ApiException as err:
-        raise ValueError(err.body) from err
+        body = err.body
+        try:
+            body = json.loads(body)['message']
+        except (ValueError, AttributeError):
+            pass
+        raise ValueError(body) from err
     # pylint: disable=no-else-return
     if verb == 'list':
         if 'to_dict' in dir(objs):
@@ -92,6 +98,23 @@ def _api_call(api_resource, verb, resource, **opts):
         if 'to_dict' in dir(objs):
             return objs.to_dict()
         return objs
+
+
+def scale(obj: str, name: str, replicas: int, namespace: str = None) -> bool:
+    namespace = namespace or 'default'
+    for k8s_obj in K8S_OBJECTS:
+        if obj == k8s_obj['name'].lower() or \
+                obj == k8s_obj['name'].lower() + 's' or \
+                obj in k8s_obj['aliases']:
+            if k8s_obj['name'] not in \
+                    ('Namespace', 'Deployment', 'StatefulSet', 'ReplicaSet'):
+                raise ValueError('the server could not find the requested resource')
+            ftn = f'namespaced_{camel_to_snake(k8s_obj["name"])}_scale'
+            return _api_call(
+                k8s_obj['apiName'], 'patch', ftn,
+                name=name, namespace=namespace,
+                body={"spec": {'replicas': replicas}})
+    return False
 
 
 def get(obj, name=None, namespace=None, labels=None):
@@ -491,4 +514,27 @@ def cp(name: str, local_path: str, remote_path: str,
                     else:
                         local_file = local_path
                     tar.makefile(member, local_file)
+    return True
+
+
+def wait(obj: str, jsonpath: str, value: str, name: str = None,
+         namespace: str = None, labels: str = None, timeout: int = 60):
+    """
+    Examples:
+       kubectl.wait('pods', '{@[*].metadata.name}', 'nginx')
+    """
+    seconds = 0
+    if jsonpath[0] == '{' and jsonpath[-1] == '}':
+        jsonpath = jsonpath[1:-1]
+    if jsonpath[0] == '.':
+        jsonpath = jsonpath[1:]
+    query = jp.parse(jsonpath)
+    while True:
+        obj_value = get(obj, name, namespace, labels)
+        if any(match.value == value for match in query.find(obj_value)):
+            break
+        time.sleep(2)
+        seconds += 2
+        if seconds > timeout:
+            raise TimeoutError('timed out waiting for the condition')
     return True
