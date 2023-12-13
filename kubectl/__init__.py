@@ -144,37 +144,21 @@ def get(obj: str, name: str = None, namespace: str = None,
     if resource['api']['name'] == 'CoreV1Api':
         ftn = camel_to_snake(resource['kind'])
         if resource['namespaced'] is True:
-            ftn = f"namespaced_{ftn}"
+            if all_namespaces is True:
+                ftn = f"{ftn}_for_all_namespaces"
+            else:
+                ftn = f"namespaced_{ftn}"
+                opts['namespace'] = namespace
     else:
         opts['plural'] = resource['name']
         opts['group'] = resource['api']['group']
         opts['version'] = resource['api']['version']
-        if resource['namespaced'] is True:
+        if all_namespaces is False and resource['namespaced'] is True:
             ftn = 'namespaced_custom_object'
+            opts['namespace'] = namespace
         else:
             ftn = 'cluster_custom_object'
-    if all_namespaces is True and resource['namespaced'] is True:
-        if name is not None:
-            raise ValueError(
-                "error: a resource cannot be retrieved "
-                "by name across all namespaces")
-        if resource['api']['name'] == 'CoreV1Api':
-            return _api_call(
-                resource['api']['name'], 'list',
-                f"{camel_to_snake(resource['kind'])}_for_all_namespaces",
-                **opts)
-        else:
-            namespaces = [ns['metadata']['name'] for ns in get("namespaces")]
-            retval = []
-            for namespace in namespaces:
-                opts['namespace'] = namespace
-                retval += _api_call(
-                    resource['api']['name'], 'list', ftn, **opts)
-            return retval
-    else:
-        if resource['namespaced'] is True:
-            opts['namespace'] = namespace
-        return _api_call(resource['api']['name'], 'list', ftn, **opts)
+    return _api_call(resource['api']['name'], 'list', ftn, **opts)
 
 
 def delete(obj: str, name: str, namespace: str = None) -> dict:
