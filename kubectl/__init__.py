@@ -158,12 +158,19 @@ def get(obj: str, name: str = None, namespace: str = None,
             raise ValueError(
                 "error: a resource cannot be retrieved "
                 "by name across all namespaces")
-        namespaces = [ns['metadata']['name'] for ns in get("namespaces")]
-        retval = []
-        for namespace in namespaces:
-            opts['namespace'] = namespace
-            retval += _api_call(resource['api']['name'], 'list', ftn, **opts)
-        return retval
+        if resource['api']['name'] == 'CoreV1Api':
+            return _api_call(
+                resource['api']['name'], 'list',
+                f"{camel_to_snake(resource['kind'])}_for_all_namespaces",
+                **opts)
+        else:
+            namespaces = [ns['metadata']['name'] for ns in get("namespaces")]
+            retval = []
+            for namespace in namespaces:
+                opts['namespace'] = namespace
+                retval += _api_call(
+                    resource['api']['name'], 'list', ftn, **opts)
+            return retval
     else:
         if resource['namespaced'] is True:
             opts['namespace'] = namespace
@@ -327,11 +334,11 @@ def apply(body: dict) -> dict:
     return patch(obj, name, namespace, body)
 
 
-def top(obj: str, namespace: str = None) -> dict:
+def top(obj: str, namespace: str = None, all_namespaces: bool = False) -> dict:
     if obj not in ('pod', 'pods', 'node', 'nodes'):
         raise ValueError(f'error: unknown command "{obj}"')
     obj = 'podmetrics' if obj in ('pod', 'pods') else 'nodemetrics'
-    return get(obj, namespace=namespace)
+    return get(obj, namespace=namespace, all_namespaces=all_namespaces)
 
 
 # pylint: disable=redefined-builtin
