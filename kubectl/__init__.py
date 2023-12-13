@@ -61,8 +61,7 @@ def load_kubeconfig(host: str = None, api_key: str = None, certificate: str = No
 def _get_resource(obj: str) -> dict:
     api = kubernetes.client.CoreV1Api()
     for res in api.get_api_resources().to_dict()['resources']:
-        if res['name'].lower() == obj.lower() or \
-                res['name'].lower() == obj.lower() + 's' or \
+        if res['name'] == obj or res['kind'].lower() == obj.lower() or \
                 (res['short_names'] and obj in res['short_names']):
             res['api'] = {
                 'name': api.__class__.__name__,
@@ -75,8 +74,7 @@ def _get_resource(obj: str) -> dict:
         for res in api.get_api_resources(
                 api_group['name'],
                 api_group['preferred_version']['version']).to_dict()['resources']:
-            if res['name'].lower() == obj.lower() or \
-                    res['name'].lower() == obj.lower() + 's' or \
+            if res['name'] == obj or res['kind'].lower() == obj.lower() or \
                     (res['short_names'] and obj in res['short_names']):
                 res['api'] = {
                     'name': api.__class__.__name__,
