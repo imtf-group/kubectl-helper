@@ -131,30 +131,43 @@ def scale(obj: str, name: str, namespace: str = None, replicas: int = 1) -> dict
         body={"spec": {'replicas': replicas}})
 
 
-def get(obj: str, name: str = None, namespace: str = None, labels: str = None) -> dict:
-    namespace = namespace or 'default'
+def get(obj: str, name: str = None, namespace: str = None,
+        labels: str = None, all_namespaces: bool = False) -> dict:
     resource = _get_resource(obj)
     verb = 'get' if name else 'list'
     if verb not in resource['verbs']:
         raise ValueError(
             'Error from server (MethodNotAllowed): '
             'the server does not allow this method on the requested resource')
+    namespace = namespace or 'default'
     opts = {"label_selector": labels, "name": name}
     if resource['api']['name'] == 'CoreV1Api':
         ftn = camel_to_snake(resource['kind'])
         if resource['namespaced'] is True:
             ftn = f"namespaced_{ftn}"
-            opts['namespace'] = namespace
     else:
         opts['plural'] = resource['name']
         opts['group'] = resource['api']['group']
         opts['version'] = resource['api']['version']
         if resource['namespaced'] is True:
             ftn = 'namespaced_custom_object'
-            opts['namespace'] = namespace
         else:
             ftn = 'cluster_custom_object'
-    return _api_call(resource['api']['name'], 'list', ftn, **opts)
+    if all_namespaces is True and resource['namespaced'] is True:
+        if name is not None:
+            raise ValueError(
+                "error: a resource cannot be retrieved "
+                "by name across all namespaces")
+        namespaces = [ns['metadata']['name'] for ns in get("namespaces")]
+        retval = []
+        for namespace in namespaces:
+            opts['namespace'] = namespace
+            retval += _api_call(resource['api']['name'], 'list', ftn, **opts)
+        return retval
+    else:
+        if resource['namespaced'] is True:
+            opts['namespace'] = namespace
+        return _api_call(resource['api']['name'], 'list', ftn, **opts)
 
 
 def delete(obj: str, name: str, namespace: str = None) -> dict:
@@ -312,6 +325,13 @@ def apply(body: dict) -> dict:
     if get(obj, name, namespace) == {}:
         return create(obj, name, namespace, body)
     return patch(obj, name, namespace, body)
+
+
+def top(obj: str, namespace: str = None) -> dict:
+    if obj not in ('pod', 'pods', 'node', 'nodes'):
+        raise ValueError(f'error: unknown command "{obj}"')
+    obj = 'podmetrics' if obj in ('pod', 'pods') else 'nodemetrics'
+    return get(obj, namespace=namespace)
 
 
 # pylint: disable=redefined-builtin
