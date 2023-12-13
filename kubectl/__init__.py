@@ -119,7 +119,7 @@ def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
         return objs
 
 
-def scale(obj: str, name: str, replicas: int, namespace: str = None) -> dict:
+def scale(obj: str, name: str, namespace: str = None, replicas: int = 1) -> dict:
     namespace = namespace or 'default'
     resource = _get_resource(obj)
     if resource['kind'] not in ('Deployment', 'StatefulSet', 'ReplicaSet'):
@@ -185,7 +185,6 @@ def delete(obj: str, name: str, namespace: str = None) -> dict:
 def create(obj: str, name: str = None, namespace: str = None, body: dict = None) -> dict:
     body = body or {}
     resource = _get_resource(obj)
-    print(resource)
     if 'create' not in resource['verbs']:
         raise ValueError(
             'Error from server (MethodNotAllowed): '
