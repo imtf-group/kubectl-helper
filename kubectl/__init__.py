@@ -2,9 +2,9 @@ import os.path
 import tarfile
 import glob
 import re
-import tempfile
 import time
 import json
+import tempfile
 import urllib3
 import jsonpath_ng.ext as jp
 import kubernetes.client
@@ -15,58 +15,79 @@ import kubernetes.stream
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-K8S_OBJECTS = [
-    {'name': 'Namespace', 'aliases': ['ns'], 'apiVersion':'v1',
-     'apiName': 'CoreV1Api', 'namespaced': False},
-    {'name': 'Pod', 'aliases': ['po'], 'apiVersion':'v1',
-     'apiName': 'CoreV1Api', 'namespaced': True},
-    {'name': 'Secret', 'aliases': [], 'apiVersion':'v1',
-     'apiName': 'CoreV1Api', 'namespaced': True},
-    {'name': 'ConfigMap', 'aliases': ['cm'], 'apiVersion':'v1',
-     'apiName': 'CoreV1Api', 'namespaced': True},
-    {'name': 'Service', 'aliases': ['svc'], 'apiVersion':'v1',
-     'apiName': 'CoreV1Api', 'namespaced': True},
-    {'name': 'ServiceAccount', 'aliases': ['sa'], 'apiVersion':'v1',
-     'apiName': 'CoreV1Api', 'namespaced': True},
-    {'name': 'PersistentVolumeClaim', 'aliases': ['pvc'], 'apiVersion':'v1',
-     'apiName': 'CoreV1Api', 'namespaced': True},
-    {'name': 'PersistentVolume', 'aliases': ['pv'], 'apiVersion':'v1',
-     'apiName': 'CoreV1Api', 'namespaced': False},
-    {'name': 'Deployment', 'aliases': ['deploy'], 'apiVersion':'apps/v1',
-     'apiName': 'AppsV1Api', 'namespaced': True},
-    {'name': 'StatefulSet', 'aliases': ['sts'], 'apiVersion':'apps/v1',
-     'apiName': 'AppsV1Api', 'namespaced': True},
-    {'name': 'DaemonSet', 'aliases': ['ds'], 'apiVersion':'apps/v1',
-     'apiName': 'AppsV1Api', 'namespaced': True},
-    {'name': 'ReplicaSet', 'aliases': ['rs'], 'apiVersion':'apps/v1',
-     'apiName': 'AppsV1Api', 'namespaced': True},
-    {'name': 'CronJob', 'aliases': ['cj'], 'apiVersion':'batch/v1',
-     'apiName': 'BatchV1Api', 'namespaced': True},
-    {'name': 'Job', 'aliases': [], 'apiVersion':'batch/v1',
-     'apiName': 'BatchV1Api', 'namespaced': True},
-    {'name': 'Ingress', 'aliases': ['ing'], 'apiVersion':'networking.k8s.io/v1',
-     'apiName': 'NetworkingV1', 'namespaced': True},
-    {'name': 'Role', 'apiVersion': 'rbac.authorization.k8s.io/v1',
-     'aliases': [], 'apiName': 'RbacAuthorizationV1Api', 'namespaced': True},
-    {'name': 'RoleBinding', 'apiVersion': 'rbac.authorization.k8s.io/v1',
-     'aliases': [], 'apiName': 'RbacAuthorizationV1Api', 'namespaced': True},
-    {'name': 'ClusterRole', 'apiVersion': 'rbac.authorization.k8s.io/v1',
-     'aliases': [], 'apiName': 'RbacAuthorizationV1Api', 'namespaced': False},
-    {'name': 'ClusterRoleBinding', 'apiVersion': 'rbac.authorization.k8s.io/v1',
-     'aliases': [], 'apiName': 'RbacAuthorizationV1Api', 'namespaced': False}
-]
-
-
-def camel_to_snake(name):
+def camel_to_snake(name: str) -> str:
     name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', name).lower()
 
 
-def load_kubeconfig():
-    kubernetes.config.load_kube_config()
+def snake_to_camel(name: str) -> str:
+    name = name.split('_')
+    return name[0] + ''.join(ele.title() for ele in name[1:])
 
 
-def _api_call(api_resource, verb, resource, **opts):
+def _prepare_body(body: dict) -> dict:
+    """Ensure fields are in Camel Case"""
+    if isinstance(body, dict):
+        return {
+            snake_to_camel(key): (
+                _prepare_body(value) if key != 'data' else value)
+            for key, value in body.items()}
+    if isinstance(body, (list, tuple)):
+        return [_prepare_body(sub) for sub in body]
+    return body
+
+
+def load_kubeconfig(host: str = None, api_key: str = None, certificate: str = None):
+    if not host:
+        kubernetes.config.load_kube_config()
+        return
+    configuration = kubernetes.client.Configuration()
+    configuration.host = host
+    if api_key:
+        configuration.api_key['authorization'] = api_key
+        configuration.api_key_prefix['authorization'] = 'Bearer'
+    if certificate:
+        # pylint: disable=consider-using-with
+        cafile = tempfile.NamedTemporaryFile(delete=False)
+        cafile.write(certificate)
+        cafile.flush()
+        configuration.ssl_ca_cert = cafile.name
+    else:
+        configuration.verify_ssl = False
+    kubernetes.client.Configuration.set_default(configuration)
+    return
+
+
+def _get_resource(obj: str) -> dict:
+    api = kubernetes.client.CoreV1Api()
+    for res in api.get_api_resources().to_dict()['resources']:
+        if res['name'].lower() == obj.lower() or \
+                res['name'].lower() == obj.lower() + 's' or \
+                (res['short_names'] and obj in res['short_names']):
+            res['api'] = {
+                'name': api.__class__.__name__,
+                'version': 'v1',
+                'group_version': 'v1'}
+            return res
+    global_api = kubernetes.client.ApisApi()
+    api = kubernetes.client.CustomObjectsApi()
+    for api_group in global_api.get_api_versions().to_dict()['groups']:
+        for res in api.get_api_resources(
+                api_group['name'],
+                api_group['preferred_version']['version']).to_dict()['resources']:
+            if res['name'].lower() == obj.lower() or \
+                    res['name'].lower() == obj.lower() + 's' or \
+                    (res['short_names'] and obj in res['short_names']):
+                res['api'] = {
+                    'name': api.__class__.__name__,
+                    'group': api_group['name'],
+                    'version': api_group['preferred_version']['version'],
+                    'group_version': api_group['preferred_version']['group_version']}
+                return res
+    raise ValueError(f'error: the server doesn\'t have a resource type "{obj}"')
+
+
+def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
     ftn = f"{verb}_{resource}"
     name = None
     if verb == 'list' and 'name' in opts:
@@ -100,174 +121,142 @@ def _api_call(api_resource, verb, resource, **opts):
         return objs
 
 
-def scale(obj: str, name: str, replicas: int, namespace: str = None) -> bool:
+def scale(obj: str, name: str, replicas: int, namespace: str = None) -> dict:
     namespace = namespace or 'default'
-    for k8s_obj in K8S_OBJECTS:
-        if obj == k8s_obj['name'].lower() or \
-                obj == k8s_obj['name'].lower() + 's' or \
-                obj in k8s_obj['aliases']:
-            if k8s_obj['name'] not in \
-                    ('Namespace', 'Deployment', 'StatefulSet', 'ReplicaSet'):
-                raise ValueError('the server could not find the requested resource')
-            ftn = f'namespaced_{camel_to_snake(k8s_obj["name"])}_scale'
-            return _api_call(
-                k8s_obj['apiName'], 'patch', ftn,
-                name=name, namespace=namespace,
-                body={"spec": {'replicas': replicas}})
-    return False
+    resource = _get_resource(obj)
+    if resource['kind'] not in ('Deployment', 'StatefulSet', 'ReplicaSet'):
+        raise ValueError('the server could not find the requested resource')
+    ftn = f"namespaced_{camel_to_snake(resource['kind'])}_scale"
+    return _api_call(
+        'AppsV1Api', 'patch', ftn,
+        name=name, namespace=namespace,
+        body={"spec": {'replicas': replicas}})
 
 
-def get(obj, name=None, namespace=None, labels=None):
+def get(obj: str, name: str = None, namespace: str = None, labels: str = None) -> dict:
     namespace = namespace or 'default'
-    for k8s_obj in K8S_OBJECTS:
-        if obj == k8s_obj['name'].lower() or \
-                obj == k8s_obj['name'].lower() + 's' or \
-                obj in k8s_obj['aliases']:
-            ftn = camel_to_snake(k8s_obj['name'])
-            opts = {"label_selector": labels, "name": name}
-            if k8s_obj['namespaced'] is True:
-                ftn = 'namespaced_' + ftn
-                opts['namespace'] = namespace
-            return _api_call(k8s_obj['apiName'], 'list', ftn, **opts)
-    global_api = kubernetes.client.ApisApi()
-    api = kubernetes.client.CustomObjectsApi()
-    resource = []
-    for api_group in global_api.get_api_versions().to_dict()['groups']:
-        for res in api.get_api_resources(
-                api_group['name'],
-                api_group['preferred_version']['version']).to_dict()['resources']:
-            if res['name'] == obj or res['name'] == obj + 's' or \
-                    (res['short_names'] and obj in res['short_names']):
-                resource = res
-                break
-        if resource:
-            break
-    else:
-        raise ValueError(f'error: the server doesn\'t have a resource type "{obj}"')
-    if 'get' not in resource['verbs']:
+    resource = _get_resource(obj)
+    verb = 'get' if name else 'list'
+    if verb not in resource['verbs']:
         raise ValueError(
             'Error from server (MethodNotAllowed): '
             'the server does not allow this method on the requested resource')
     opts = {"label_selector": labels, "name": name}
-    if resource['namespaced'] is True:
-        scope = 'namespaced'
-        opts['namespace'] = namespace
+    if resource['api']['name'] == 'CoreV1Api':
+        ftn = camel_to_snake(resource['kind'])
+        if resource['namespaced'] is True:
+            ftn = f"namespaced_{ftn}"
+            opts['namespace'] = namespace
     else:
-        scope = 'cluster'
-    return _api_call('CustomObjectsApi',
-                     'list', f'{scope}_custom_object',
-                     plural=resource['name'],
-                     group=api_group['name'],
-                     version=api_group['preferred_version']['version'],
-                     **opts)
+        opts['plural'] = resource['name']
+        opts['group'] = resource['api']['group']
+        opts['version'] = resource['api']['version']
+        if resource['namespaced'] is True:
+            ftn = 'namespaced_custom_object'
+            opts['namespace'] = namespace
+        else:
+            ftn = 'cluster_custom_object'
+    return _api_call(resource['api']['name'], 'list', ftn, **opts)
 
 
-def delete(obj, name, namespace=None):
+def delete(obj: str, name: str, namespace: str = None) -> dict:
     namespace = namespace or 'default'
-    for k8s_obj in K8S_OBJECTS:
-        if obj == k8s_obj['name'].lower() or \
-                obj == k8s_obj['name'].lower() + 's' or \
-                obj in k8s_obj['aliases']:
-            ftn = camel_to_snake(k8s_obj['name'])
-            opts = {"name": name}
-            if k8s_obj['namespaced'] is True:
-                ftn = 'namespaced_' + ftn
-                opts['namespace'] = namespace
-            return _api_call(k8s_obj['apiName'], 'delete', ftn, **opts)
-    global_api = kubernetes.client.ApisApi()
-    api = kubernetes.client.CustomObjectsApi()
-    resource = []
-    for api_group in global_api.get_api_versions().to_dict()['groups']:
-        for res in api.get_api_resources(
-                api_group['name'],
-                api_group['preferred_version']['version']).to_dict()['resources']:
-            if res['name'] == obj or res['name'] == obj + 's' or \
-                    (res['short_names'] and obj in res['short_names']):
-                resource = res
-                break
-        if resource:
-            break
-    else:
-        raise ValueError(f'error: the server doesn\'t have a resource type "{obj}"')
+    resource = _get_resource(obj)
     if 'delete' not in resource['verbs']:
         raise ValueError(
             'Error from server (MethodNotAllowed): '
             'the server does not allow this method on the requested resource')
     opts = {"name": name}
-    if resource['namespaced'] is True:
-        scope = 'namespaced'
-        opts['namespace'] = namespace
+    if resource['api']['name'] == 'CoreV1Api':
+        ftn = camel_to_snake(resource['kind'])
+        if resource['namespaced'] is True:
+            ftn = f"namespaced_{ftn}"
+            opts['namespace'] = namespace
     else:
-        scope = 'cluster'
-    return _api_call('CustomObjectsApi',
-                     'delete', f'{scope}_custom_object',
-                     plural=resource['name'],
-                     group=api_group['name'],
-                     version=api_group['preferred_version']['version'],
-                     **opts)
+        opts['plural'] = resource['name']
+        opts['group'] = resource['api']['group']
+        opts['version'] = resource['api']['version']
+        if resource['namespaced'] is True:
+            ftn = 'namespaced_custom_object'
+            opts['namespace'] = namespace
+        else:
+            ftn = 'cluster_custom_object'
+    return _api_call(resource['api']['name'], 'delete', ftn, **opts)
 
 
-def create(obj, body, name=None, namespace=None):
+def create(obj: str, name: str = None, namespace: str = None, body: dict = None) -> dict:
+    body = body or {}
+    resource = _get_resource(obj)
+    print(resource)
+    if 'create' not in resource['verbs']:
+        raise ValueError(
+            'Error from server (MethodNotAllowed): '
+            'the server does not allow this method on the requested resource')
     if 'metadata' not in body:
         body['metadata'] = {}
     if name is not None:
         body['metadata']['name'] = name
     if namespace is not None:
         body['metadata']['namespace'] = namespace
-    namespace = namespace or 'default'
-    for k8s_obj in K8S_OBJECTS:
-        if obj == k8s_obj['name'].lower() or \
-                obj == k8s_obj['name'].lower() + 's' or \
-                obj in k8s_obj['aliases']:
-            if 'apiVersion' not in body:
-                body['apiVersion'] = k8s_obj['apiVersion']
-            if 'kind' not in body:
-                body['kind'] = k8s_obj['name']
-            ftn = camel_to_snake(k8s_obj['name'])
-            opts = {"body": body}
-            if k8s_obj['namespaced'] is True:
-                ftn = 'namespaced_' + ftn
-                opts['namespace'] = namespace
-            return _api_call(k8s_obj['apiName'], 'create', ftn, **opts)
-    global_api = kubernetes.client.ApisApi()
-    api = kubernetes.client.CustomObjectsApi()
-    resource = []
-    for api_group in global_api.get_api_versions().to_dict()['groups']:
-        for res in api.get_api_resources(
-                api_group['name'],
-                api_group['preferred_version']['version']).to_dict()['resources']:
-            if res['name'] == obj or res['name'] == obj + 's' or \
-                    (res['short_names'] and obj in res['short_names']):
-                resource = res
-                break
-        if resource:
-            break
+    if 'apiVersion' not in body:
+        body['apiVersion'] = resource['api']['group_version']
+    if 'kind' not in body:
+        body['kind'] = resource['kind']
+    opts = {"body": _prepare_body(body)}
+    if resource['api']['name'] == 'CoreV1Api':
+        ftn = camel_to_snake(resource['kind'])
+        if resource['namespaced'] is True:
+            ftn = f"namespaced_{ftn}"
+            opts['namespace'] = namespace or 'default'
     else:
-        raise ValueError(f'error: the server doesn\'t have a resource type "{obj}"')
-    if 'create' not in resource['verbs']:
+        opts['plural'] = resource['name']
+        opts['group'] = resource['api']['group']
+        opts['version'] = resource['api']['version']
+        if resource['namespaced'] is True:
+            ftn = 'namespaced_custom_object'
+            opts['namespace'] = namespace or 'default'
+        else:
+            ftn = 'cluster_custom_object'
+    return _api_call(resource['api']['name'], 'create', ftn, **opts)
+
+
+def patch(obj: str, name: str = None, namespace: str = None, body: dict = None) -> dict:
+    body = body or {}
+    resource = _get_resource(obj)
+    if 'patch' not in resource['verbs']:
         raise ValueError(
             'Error from server (MethodNotAllowed): '
             'the server does not allow this method on the requested resource')
+    if 'metadata' not in body:
+        body['metadata'] = {}
+    if name is not None:
+        body['metadata']['name'] = name
+    if namespace is not None:
+        body['metadata']['namespace'] = namespace
     if 'apiVersion' not in body:
-        body['apiVersion'] = api_group['preferred_version']['group_version']
+        body['apiVersion'] = resource['api']['group_version']
     if 'kind' not in body:
         body['kind'] = resource['kind']
-    opts = {"body": body}
-    if resource['namespaced'] is True:
-        scope = 'namespaced'
-        opts['namespace'] = namespace
+    opts = {"name": body['metadata']['name'], "body": _prepare_body(body)}
+    if resource['api']['name'] == 'CoreV1Api':
+        ftn = camel_to_snake(resource['kind'])
+        if resource['namespaced'] is True:
+            ftn = f"namespaced_{ftn}"
+            opts['namespace'] = namespace or 'default'
     else:
-        scope = 'cluster'
-    return _api_call('CustomObjectsApi',
-                     'create', f'{scope}_custom_object',
-                     plural=resource['name'],
-                     group=api_group['name'],
-                     version=api_group['preferred_version']['version'],
-                     **opts)
+        opts['plural'] = resource['name']
+        opts['group'] = resource['api']['group']
+        opts['version'] = resource['api']['version']
+        if resource['namespaced'] is True:
+            ftn = 'namespaced_custom_object'
+            opts['namespace'] = namespace or 'default'
+        else:
+            ftn = 'cluster_custom_object'
+    return _api_call(resource['api']['name'], 'patch', ftn, **opts)
 
 
-def run(name, image, namespace=None, annotations=None,
-        labels=None, env=None, restart='Always'):
+def run(name: str, image: str, namespace: str = None, annotations: dict = None,
+        labels: dict = None, env: dict = None, restart: str = 'Always') -> dict:
     annotations = annotations or {}
     labels = labels or {}
     env = env or {}
@@ -286,53 +275,20 @@ def run(name, image, namespace=None, annotations=None,
                      namespace=namespace, body=body)
 
 
-def annotate(obj, name: str, namespace: str = None, **annotations) -> dict:
-    namespace = namespace or 'default'
-    resp = get(obj, name, namespace)
-    current = resp['metadata'].get('annotations', {})
+def annotate(obj, name: str, namespace: str = None,
+             overwrite: bool = False, **annotations) -> dict:
+    body = get(obj, name, namespace)
+    current = body['metadata'].get('annotations', {})
+    if overwrite is False:
+        for key in current:
+            if key in annotations:
+                raise ValueError(
+                    "error: overwrite is false but found the "
+                    "following declared annotation(s): "
+                    f"'{key}' already has a value ({current[key]})")
     current.update(annotations)
-    resp['metadata']['annotations'] = current
-    for k8s_obj in K8S_OBJECTS:
-        if obj == k8s_obj['name'].lower() or \
-                obj == k8s_obj['name'].lower() + 's' or \
-                obj in k8s_obj['aliases']:
-            ftn = camel_to_snake(k8s_obj['name'])
-            opts = {"name": name, "body": resp}
-            if k8s_obj['namespaced'] is True:
-                ftn = 'namespaced_' + ftn
-                opts['namespace'] = namespace
-            return _api_call(k8s_obj['apiName'], 'patch', ftn, **opts)
-    global_api = kubernetes.client.ApisApi()
-    api = kubernetes.client.CustomObjectsApi()
-    resource = []
-    for api_group in global_api.get_api_versions().to_dict()['groups']:
-        for res in api.get_api_resources(
-                api_group['name'],
-                api_group['preferred_version']['version']).to_dict()['resources']:
-            if res['name'] == obj or res['name'] == obj + 's' or \
-                    (res['short_names'] and obj in res['short_names']):
-                resource = res
-                break
-        if resource:
-            break
-    else:
-        raise ValueError(f'error: the server doesn\'t have a resource type "{obj}"')
-    if 'patch' not in resource['verbs']:
-        raise ValueError(
-            'Error from server (MethodNotAllowed): '
-            'the server does not allow this method on the requested resource')
-    opts = {"name": name, "body": resp}
-    if resource['namespaced'] is True:
-        scope = 'namespaced'
-        opts['namespace'] = namespace
-    else:
-        scope = 'cluster'
-    return _api_call('CustomObjectsApi',
-                     'patch', f'{scope}_custom_object',
-                     plural=resource['name'],
-                     group=api_group['name'],
-                     version=api_group['preferred_version']['version'],
-                     **opts)
+    body['metadata']['annotations'] = current
+    return patch(obj, name, namespace, body)
 
 
 def logs(name: str, namespace: str = None, container: str = None) -> str:
@@ -352,64 +308,13 @@ def logs(name: str, namespace: str = None, container: str = None) -> str:
         container=container)
 
 
-def apply(obj, body, name=None, namespace=None):
+def apply(body: dict) -> dict:
+    name = body['metadata']['name']
+    namespace = body['metadata']['namespace']
+    obj = body['kind']
     if get(obj, name, namespace) == {}:
-        create(obj, body, name, namespace)
-
-    namespace = namespace or 'default'
-    if name is not None:
-        if 'metadata' not in body:
-            body['metadata'] = {}
-        body['metadata']['name'] = name
-    for k8s_obj in K8S_OBJECTS:
-        if obj == k8s_obj['name'].lower() or \
-                obj == k8s_obj['name'].lower() + 's' or \
-                obj in k8s_obj['aliases']:
-            if 'apiVersion' not in body:
-                body['apiVersion'] = k8s_obj['apiVersion']
-            if 'kind' not in body:
-                body['kind'] = k8s_obj['name']
-            ftn = camel_to_snake(k8s_obj['name'])
-            opts = {"name": name, "body": body}
-            if k8s_obj['namespaced'] is True:
-                ftn = 'namespaced_' + ftn
-                opts['namespace'] = namespace
-            return _api_call(k8s_obj['apiName'], 'patch', ftn, **opts)
-    global_api = kubernetes.client.ApisApi()
-    api = kubernetes.client.CustomObjectsApi()
-    resource = []
-    for api_group in global_api.get_api_versions().to_dict()['groups']:
-        for res in api.get_api_resources(
-                api_group['name'],
-                api_group['preferred_version']['version']).to_dict()['resources']:
-            if res['name'] == obj or res['name'] == obj + 's' or \
-                    (res['short_names'] and obj in res['short_names']):
-                resource = res
-                break
-        if resource:
-            break
-    else:
-        raise ValueError(f'error: the server doesn\'t have a resource type "{obj}"')
-    if 'patch' not in resource['verbs']:
-        raise ValueError(
-            'Error from server (MethodNotAllowed): '
-            'the server does not allow this method on the requested resource')
-    if 'apiVersion' not in body:
-        body['apiVersion'] = api_group['preferred_version']['group_version']
-    if 'kind' not in body:
-        body['kind'] = resource['kind']
-    opts = {"name": name, "body": body}
-    if resource['namespaced'] is True:
-        scope = 'namespaced'
-        opts['namespace'] = namespace
-    else:
-        scope = 'cluster'
-    return _api_call('CustomObjectsApi',
-                     'patch', f'{scope}_custom_object',
-                     plural=resource['name'],
-                     group=api_group['name'],
-                     version=api_group['preferred_version']['version'],
-                     **opts)
+        return create(obj, name, namespace, body)
+    return patch(obj, name, namespace, body)
 
 
 # pylint: disable=redefined-builtin
