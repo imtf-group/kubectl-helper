@@ -2,7 +2,6 @@ import os.path
 import tarfile
 import glob
 import re
-import time
 import json
 import tempfile
 import urllib3
