@@ -2,5 +2,5 @@
 
 max-branches=20
 max-locals=25
-disable=too-many-arguments,missing-function-docstring,missing-module-docstring
+disable=too-many-arguments,missing-function-docstring,missing-module-docstring,missing-class-docstring
 

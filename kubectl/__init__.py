@@ -10,6 +10,7 @@ import jsonpath_ng.ext as jp
 import kubernetes.client
 import kubernetes.config
 import kubernetes.stream
+from kubectl import exceptions
 
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -55,7 +56,6 @@ def load_kubeconfig(host: str = None, api_key: str = None, certificate: str = No
     else:
         configuration.verify_ssl = False
     kubernetes.client.Configuration.set_default(configuration)
-    return
 
 
 def _get_resource(obj: str) -> dict:
@@ -82,7 +82,7 @@ def _get_resource(obj: str) -> dict:
                     'version': api_group['preferred_version']['version'],
                     'group_version': api_group['preferred_version']['group_version']}
                 return res
-    raise ValueError(f'error: the server doesn\'t have a resource type "{obj}"')
+    raise exceptions.KubectlTypeException(obj)
 
 
 def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
@@ -100,7 +100,7 @@ def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
             body = json.loads(body)['message']
         except (ValueError, AttributeError):
             pass
-        raise ValueError(body) from err
+        raise exceptions.KubectlBaseException(body) from err
     # pylint: disable=no-else-return
     if verb == 'list':
         if 'to_dict' in dir(objs):
@@ -123,11 +123,9 @@ def scale(obj: str, name: str, namespace: str = None, replicas: int = 1) -> dict
     namespace = namespace or 'default'
     resource = _get_resource(obj)
     if resource['kind'] not in ('Deployment', 'StatefulSet', 'ReplicaSet'):
-        raise ValueError('the server could not find the requested resource')
+        raise exceptions.KubectlResourceNotFoundException
     if 'patch' not in resource['verbs']:
-        raise ValueError(
-            'Error from server (MethodNotAllowed): '
-            'the server does not allow this method on the requested resource')
+        raise exceptions.KubectlMethodException
     ftn = f"namespaced_{camel_to_snake(resource['kind'])}_scale"
     return _api_call(
         'AppsV1Api', 'patch', ftn,
@@ -140,9 +138,7 @@ def get(obj: str, name: str = None, namespace: str = None,
     resource = _get_resource(obj)
     verb = 'get' if name else 'list'
     if verb not in resource['verbs']:
-        raise ValueError(
-            'Error from server (MethodNotAllowed): '
-            'the server does not allow this method on the requested resource')
+        raise exceptions.KubectlMethodException
     namespace = namespace or 'default'
     opts = {"label_selector": labels, "name": name}
     if resource['api']['name'] == 'CoreV1Api':
@@ -169,9 +165,7 @@ def delete(obj: str, name: str, namespace: str = None) -> dict:
     namespace = namespace or 'default'
     resource = _get_resource(obj)
     if 'delete' not in resource['verbs']:
-        raise ValueError(
-            'Error from server (MethodNotAllowed): '
-            'the server does not allow this method on the requested resource')
+        raise exceptions.KubectlMethodException
     opts = {"name": name}
     if resource['api']['name'] == 'CoreV1Api':
         ftn = camel_to_snake(resource['kind'])
@@ -192,17 +186,16 @@ def delete(obj: str, name: str, namespace: str = None) -> dict:
 
 def create(obj: str, name: str = None, namespace: str = None, body: dict = None) -> dict:
     body = body or {}
+    namespace = namespace or 'default'
     resource = _get_resource(obj)
     if 'create' not in resource['verbs']:
-        raise ValueError(
-            'Error from server (MethodNotAllowed): '
-            'the server does not allow this method on the requested resource')
+        raise exceptions.KubectlMethodException
     if 'metadata' not in body:
         body['metadata'] = {}
+    if resource['namespaced'] is True:
+        body['metadata']['namespace'] = namespace
     if name is not None:
         body['metadata']['name'] = name
-    if namespace is not None:
-        body['metadata']['namespace'] = namespace
     if 'apiVersion' not in body:
         body['apiVersion'] = resource['api']['group_version']
     if 'kind' not in body:
@@ -212,14 +205,14 @@ def create(obj: str, name: str = None, namespace: str = None, body: dict = None)
         ftn = camel_to_snake(resource['kind'])
         if resource['namespaced'] is True:
             ftn = f"namespaced_{ftn}"
-            opts['namespace'] = namespace or 'default'
+            opts['namespace'] = namespace
     else:
         opts['plural'] = resource['name']
         opts['group'] = resource['api']['group']
         opts['version'] = resource['api']['version']
         if resource['namespaced'] is True:
             ftn = 'namespaced_custom_object'
-            opts['namespace'] = namespace or 'default'
+            opts['namespace'] = namespace
         else:
             ftn = 'cluster_custom_object'
     return _api_call(resource['api']['name'], 'create', ftn, **opts)
@@ -227,17 +220,16 @@ def create(obj: str, name: str = None, namespace: str = None, body: dict = None)
 
 def patch(obj: str, name: str = None, namespace: str = None, body: dict = None) -> dict:
     body = body or {}
+    namespace = namespace or 'default'
     resource = _get_resource(obj)
     if 'patch' not in resource['verbs']:
-        raise ValueError(
-            'Error from server (MethodNotAllowed): '
-            'the server does not allow this method on the requested resource')
+        raise exceptions.KubectlMethodException
     if 'metadata' not in body:
         body['metadata'] = {}
+    if resource['namespaced'] is True:
+        body['metadata']['namespace'] = namespace
     if name is not None:
         body['metadata']['name'] = name
-    if namespace is not None:
-        body['metadata']['namespace'] = namespace
     if 'apiVersion' not in body:
         body['apiVersion'] = resource['api']['group_version']
     if 'kind' not in body:
@@ -247,14 +239,14 @@ def patch(obj: str, name: str = None, namespace: str = None, body: dict = None) 
         ftn = camel_to_snake(resource['kind'])
         if resource['namespaced'] is True:
             ftn = f"namespaced_{ftn}"
-            opts['namespace'] = namespace or 'default'
+            opts['namespace'] = namespace
     else:
         opts['plural'] = resource['name']
         opts['group'] = resource['api']['group']
         opts['version'] = resource['api']['version']
         if resource['namespaced'] is True:
             ftn = 'namespaced_custom_object'
-            opts['namespace'] = namespace or 'default'
+            opts['namespace'] = namespace
         else:
             ftn = 'cluster_custom_object'
     return _api_call(resource['api']['name'], 'patch', ftn, **opts)
@@ -287,7 +279,7 @@ def annotate(obj, name: str, namespace: str = None,
     if overwrite is False:
         for key in current:
             if key in annotations:
-                raise ValueError(
+                raise exceptions.KubectlBaseException(
                     "error: overwrite is false but found the "
                     "following declared annotation(s): "
                     f"'{key}' already has a value ({current[key]})")
@@ -304,9 +296,7 @@ def logs(name: str, namespace: str = None, container: str = None) -> str:
         container = resp['spec']['containers'][0]['name']
     else:
         if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
-            raise ValueError(
-                f'Error from server (BadRequest): '
-                f'container {container} is not valid for pod {name}')
+            raise exceptions.KubectlContainerNotFoundException(name, namespace, container)
     return api.read_namespaced_pod_log(
         name,
         namespace,
@@ -324,7 +314,7 @@ def apply(body: dict) -> dict:
 
 def top(obj: str, namespace: str = None, all_namespaces: bool = False) -> dict:
     if obj not in ('pod', 'pods', 'node', 'nodes'):
-        raise ValueError(f'error: unknown command "{obj}"')
+        raise exceptions.KubectlBaseException(f'error: unknown command "{obj}"')
     obj = 'podmetrics' if obj in ('pod', 'pods') else 'nodemetrics'
     return get(obj, namespace=namespace, all_namespaces=all_namespaces)
 
@@ -338,9 +328,7 @@ def exec(name: str, command: list, namespace: str = None, container: str = None)
         container = resp['spec']['containers'][0]['name']
     else:
         if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
-            raise ValueError(
-                f'Error from server (BadRequest): '
-                f'container {container} is not valid for pod {name}')
+            raise exceptions.KubectlContainerNotFoundException(name, namespace, container)
     resp = kubernetes.stream.stream(
         api.connect_get_namespaced_pod_exec,
         name,
@@ -355,7 +343,7 @@ def exec(name: str, command: list, namespace: str = None, container: str = None)
 def cp(name: str, local_path: str, remote_path: str,
        namespace: str = None, container: str = None, mode='PUSH') -> bool:
     if mode not in ('PULL', 'PUSH'):
-        raise ValueError(
+        raise exceptions.KubectlBaseException(
             'value for "mode" can only be "PULL" (from the container) '
             'or "PUSH" (to the container)')
     namespace = namespace or 'default'
@@ -365,9 +353,7 @@ def cp(name: str, local_path: str, remote_path: str,
         container = resp['spec']['containers'][0]['name']
     else:
         if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
-            raise ValueError(
-                f'Error from server (BadRequest): '
-                f'container {container} is not valid for pod {name}')
+            raise exceptions.KubectlContainerNotFoundException(name, namespace, container)
     if mode == 'PUSH':
         command = ['tar', 'xf', '-', '-C', remote_path]
         resp = kubernetes.stream.stream(
