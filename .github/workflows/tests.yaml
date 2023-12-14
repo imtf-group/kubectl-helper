@@ -1,0 +1,24 @@
+name: Unit tests
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  shellcheck:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+      - name: Install dev dependencies
+        shell: bash
+        run: pip install -r dev_requirements.txt
+      - name: Lint with Flake8
+        shell: bash
+        run: flake8 kubectl/*.py
+      - name: Lint with PyLint
+        shell: bash
+        run: pylint kubectl/*.py
+      - name: Unit tests
+        shell: bash
+        run: python tests/test_*.py -v

@@ -64,7 +64,7 @@ def _get_resource(obj: str) -> dict:
         if res['name'] == obj or res['kind'].lower() == obj.lower() or \
                 (res['short_names'] and obj in res['short_names']):
             res['api'] = {
-                'name': api.__class__.__name__,
+                'name': 'CoreV1Api',
                 'version': 'v1',
                 'group_version': 'v1'}
             return res
@@ -77,7 +77,7 @@ def _get_resource(obj: str) -> dict:
             if res['name'] == obj or res['kind'].lower() == obj.lower() or \
                     (res['short_names'] and obj in res['short_names']):
                 res['api'] = {
-                    'name': api.__class__.__name__,
+                    'name': 'CustomObjectsApi',
                     'group': api_group['name'],
                     'version': api_group['preferred_version']['version'],
                     'group_version': api_group['preferred_version']['group_version']}
@@ -124,6 +124,10 @@ def scale(obj: str, name: str, namespace: str = None, replicas: int = 1) -> dict
     resource = _get_resource(obj)
     if resource['kind'] not in ('Deployment', 'StatefulSet', 'ReplicaSet'):
         raise ValueError('the server could not find the requested resource')
+    if 'patch' not in resource['verbs']:
+        raise ValueError(
+            'Error from server (MethodNotAllowed): '
+            'the server does not allow this method on the requested resource')
     ftn = f"namespaced_{camel_to_snake(resource['kind'])}_scale"
     return _api_call(
         'AppsV1Api', 'patch', ftn,
@@ -311,7 +315,7 @@ def logs(name: str, namespace: str = None, container: str = None) -> str:
 
 def apply(body: dict) -> dict:
     name = body['metadata']['name']
-    namespace = body['metadata']['namespace']
+    namespace = body['metadata'].get('namespace', None)
     obj = body['kind']
     if get(obj, name, namespace) == {}:
         return create(obj, name, namespace, body)
