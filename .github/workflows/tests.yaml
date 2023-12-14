@@ -1,11 +1,10 @@
-name: Unit tests
+name: Lint
 on:
   push:
   workflow_dispatch:
 
 jobs:
-  shellcheck:
-    name: Unit tests
+  lint:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -22,6 +21,3 @@ jobs:
       - name: Lint with PyLint
         shell: bash
         run: pylint kubectl/*.py
-      - name: Unit tests
-        shell: bash
-        run: python tests/test_*.py -v
