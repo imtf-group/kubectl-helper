@@ -18,7 +18,6 @@ setup(
     python_requires='>=3.6',
     install_requires=[
         'requests==2.31.0',
-        'kubernetes==25.3.0',
-        'jsonpath_ng==1.6.0'
+        'kubernetes==25.3.0'
     ]
 )

@@ -6,7 +6,6 @@ import time
 import json
 import tempfile
 import urllib3
-import jsonpath_ng.ext as jp
 import kubernetes.client
 import kubernetes.config
 import kubernetes.stream
@@ -26,7 +25,7 @@ def snake_to_camel(name: str) -> str:
     return name[0] + ''.join(ele.title() for ele in name[1:])
 
 
-def _prepare_body(body: dict) -> dict:
+def _prepare_body(body):
     """Ensure fields are in Camel Case"""
     if isinstance(body, dict):
         return {
@@ -255,14 +254,17 @@ def patch(obj: str, name: str = None, namespace: str = None, body: dict = None) 
 def run(name: str, image: str, namespace: str = None, annotations: dict = None,
         labels: dict = None, env: dict = None, restart: str = 'Always') -> dict:
     annotations = annotations or {}
-    labels = labels or {}
     env = env or {}
     namespace = namespace or 'default'
     labels = labels or {'run': name}
     body = {
         "apiVersion": "v1",
         "kind": "Pod",
-        "metadata": {"labels": labels, "annotations": annotations, "name": name},
+        "metadata": {
+            "labels": labels,
+            "annotations": annotations,
+            "name": name,
+            "namespace": namespace},
         "spec": {
             "restartPolicy": restart,
             "containers": [{"image": image, "name": name}]}}
@@ -420,24 +422,24 @@ def cp(name: str, local_path: str, remote_path: str,
     return True
 
 
-def wait(obj: str, jsonpath: str, value: str, name: str = None,
-         namespace: str = None, labels: str = None, timeout: int = 60):
-    """
-    Examples:
-       kubectl.wait('pods', '{@[*].metadata.name}', 'nginx')
-    """
-    seconds = 0
-    if jsonpath[0] == '{' and jsonpath[-1] == '}':
-        jsonpath = jsonpath[1:-1]
-    if jsonpath[0] == '.':
-        jsonpath = jsonpath[1:]
-    query = jp.parse(jsonpath)
-    while True:
-        obj_value = get(obj, name, namespace, labels)
-        if any(match.value == value for match in query.find(obj_value)):
-            break
-        time.sleep(2)
-        seconds += 2
-        if seconds > timeout:
-            raise TimeoutError('timed out waiting for the condition')
-    return True
+# def wait(obj: str, jsonpath: str, value: str, name: str = None,
+#          namespace: str = None, labels: str = None, timeout: int = 60):
+#     """
+#     Examples:
+#        kubectl.wait('pods', '{@[*].metadata.name}', 'nginx')
+#     """
+#     seconds = 0
+#     if jsonpath[0] == '{' and jsonpath[-1] == '}':
+#         jsonpath = jsonpath[1:-1]
+#     if jsonpath[0] == '.':
+#         jsonpath = jsonpath[1:]
+#     query = jp.parse(jsonpath)
+#     while True:
+#         obj_value = get(obj, name, namespace, labels)
+#         if any(match.value == value for match in query.find(obj_value)):
+#             break
+#         time.sleep(2)
+#         seconds += 2
+#         if seconds > timeout:
+#             raise TimeoutError('timed out waiting for the condition')
+#     return True

@@ -2,6 +2,7 @@ import os
 import sys
 from unittest import mock
 import unittest
+import kubernetes.client
 
 if os.environ.get("CI", "false") != "true":
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
@@ -11,7 +12,41 @@ import kubectl
 class InitTests(unittest.TestCase):
 
     def setUp(self):
-        pass
+        kubernetes.client.Configuration._default = None
+
+    def test_config_with_kubeconfig(self):
+        self.assertIsNone(kubernetes.client.Configuration._default)
+        kubectl.load_kubeconfig()
+        self.assertIsNotNone(kubernetes.client.Configuration._default)
+
+    def test_config_with_certificate(self):
+        self.assertIsNone(kubernetes.client.Configuration._default)
+        kubectl.load_kubeconfig("http://localhost", "APIKEY", b"CERTIFICATE")
+        self.assertEqual(kubernetes.client.Configuration._default.host, "http://localhost")
+        self.assertEqual(
+            kubernetes.client.Configuration._default.api_key,
+            {'authorization': 'APIKEY'})
+        self.assertTrue(kubernetes.client.Configuration._default.verify_ssl)
+        with open(kubernetes.client.Configuration._default.ssl_ca_cert) as fd:
+            self.assertEqual(fd.read(), "CERTIFICATE")
+
+    def test_config_without_certificate(self):
+        self.assertIsNone(kubernetes.client.Configuration._default)
+        kubectl.load_kubeconfig("http://localhost", "APIKEY")
+        self.assertEqual(kubernetes.client.Configuration._default.host, "http://localhost")
+        self.assertEqual(
+            kubernetes.client.Configuration._default.api_key,
+            {'authorization': 'APIKEY'})
+        self.assertFalse(kubernetes.client.Configuration._default.verify_ssl)
+        self.assertIsNone(kubernetes.client.Configuration._default.ssl_ca_cert)
+
+    def test_unknown_resource(self):
+        m = mock.Mock()
+        m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
+        m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': []}
+        with mock.patch("kubernetes.client", m):
+            with self.assertRaises(kubectl.exceptions.KubectlTypeException):
+                kubectl._get_resource("imtf")
 
     def test_list_namespace(self):
         m = mock.Mock()
@@ -244,7 +279,7 @@ class InitTests(unittest.TestCase):
         }
         with mock.patch("kubernetes.client", m):
             with self.assertRaises(kubectl.exceptions.KubectlBaseException):
-                kubectl.get("pod", "toto")
+                kubectl.delete("pod", "toto")
 
     def test_delete_cluster_custom_resource(self):
         m = mock.Mock()
@@ -525,6 +560,131 @@ class InitTests(unittest.TestCase):
                 name='nginx',
                 body={'kind': 'Pod', 'apiVersion': 'v1', 'metadata': {'name': 'nginx', 'namespace': 'default', 'annotations': {'owner': 'imtf', 'user': 'bar'}}, 'spec': {}},
                 namespace='default')
+
+    def test_exec(self):
+        mock_stream = mock.Mock()
+        mock_stream.stream.return_value = '/usr\n/etc\n/bin\n'
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
+        with mock.patch("kubernetes.client", mock_client):
+            with mock.patch("kubernetes.stream", mock_stream):
+                self.assertEqual(kubectl.exec("foobar", "ls -d /", "current"), '/usr\n/etc\n/bin\n')
+                mock_stream.stream.assert_called_once_with('mock_function', 'foobar', 'current', container='first', command='ls -d /', stderr=True, stdin=False, stdout=True, tty=False)
+
+    def test_exec_wrong_container(self):
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
+        with mock.patch("kubernetes.client", mock_client):
+            with self.assertRaises(kubectl.exceptions.KubectlContainerNotFoundException):
+                kubectl.exec("foobar", "ls -d /", "current", "another")
+
+    def test_run(self):
+        m = mock.Mock()
+        with mock.patch("kubernetes.client", m):
+            kubectl.run("name", "image", annotations={'owner': 'imtf'}, env={'POD_NAME': 'podname'})
+            m.CoreV1Api().create_namespaced_pod.assert_called_once_with(
+                namespace='default',
+                body={
+                    'apiVersion': 'v1',
+                    'kind': 'Pod',
+                    'metadata': {
+                        'labels': {'run': 'name'},
+                        'annotations': {'owner': 'imtf'},
+                        'namespace': 'default',
+                        'name': 'name'},
+                    'spec': {
+                        'restartPolicy': 'Always',
+                        'containers': [{
+                            'image': 'image',
+                            'name': 'name',
+                            'env': [{'name': 'POD_NAME', 'value': 'podname'}]}]}})
+
+    def test_logs(self):
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.read_namespaced_pod_log.return_value = '/usr\n/etc\n/bin\n'
+        with mock.patch("kubernetes.client", mock_client):
+            self.assertEqual(kubectl.logs("foobar", "current"), '/usr\n/etc\n/bin\n')
+            mock_client.CoreV1Api().read_namespaced_pod_log.assert_called_once_with('foobar', 'current', container='first')
+
+    def test_logs_wrong_container(self):
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        with mock.patch("kubernetes.client", mock_client):
+            with self.assertRaises(kubectl.exceptions.KubectlContainerNotFoundException):
+                kubectl.logs("foobar", "current", "another")
+
+
+    def test_top(self):
+        m = mock.Mock()
+        m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
+        m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
+            'name': 'metrics.k8s.io',
+            'preferred_version': {'version': 'v1', 'group_version': 'metrics.k8s.io/v1'}
+        }]}
+        m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
+            'resources': [{
+                'kind': 'PodMetric', 'name': 'podmetrics',
+                'namespaced': True, 'short_names': ['pod'],
+                'verbs': ['get', 'list']}]
+        }
+        m.CustomObjectsApi.return_value.list_namespaced_custom_object.return_value = {'items': []}
+        with mock.patch("kubernetes.client", m):
+            kubectl.top("pods")
+            m.CustomObjectsApi().list_namespaced_custom_object.assert_called_once_with(label_selector=None, plural='podmetrics', group='metrics.k8s.io', version='v1', namespace='default')
+
+    def test_top_no_pods_or_nodes(self):
+        with self.assertRaises(kubectl.exceptions.KubectlBaseException):
+            kubectl.top("deployments")
+
+    def test_cp_not_pull_or_push(self):
+        with self.assertRaises(kubectl.exceptions.KubectlBaseException):
+            kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='BOTH')
+
+    def test_cp_wrong_container(self):
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
+        with mock.patch("kubernetes.client", mock_client):
+            with self.assertRaises(kubectl.exceptions.KubectlContainerNotFoundException):
+                kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='PUSH', container='another')
 
 
 if __name__ == "__main__":
