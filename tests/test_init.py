@@ -15,6 +15,7 @@ class InitTests(unittest.TestCase):
         kubernetes.client.Configuration._default = None
 
     def test_config_with_kubeconfig(self):
+        print(f"CI={os.environ.get('CI', 'false')}")
         if os.environ.get("CI", "false") != "true":
             self.assertIsNone(kubernetes.client.Configuration._default)
             kubectl.load_kubeconfig()
