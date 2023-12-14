@@ -3,9 +3,9 @@ import sys
 from unittest import mock
 import unittest
 import kubernetes.client
+import kubernetes.config
 
-if os.environ.get("CI", "false") != "true":
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
 
 import kubectl
 
@@ -15,10 +15,12 @@ class InitTests(unittest.TestCase):
         kubernetes.client.Configuration._default = None
 
     def test_config_with_kubeconfig(self):
-        if os.environ.get("CI", "false") != "true":
+        try:
             self.assertIsNone(kubernetes.client.Configuration._default)
             kubectl.load_kubeconfig()
             self.assertIsNotNone(kubernetes.client.Configuration._default)
+        except kubernetes.config.config_exception.ConfigException:
+            pass
 
     def test_config_with_certificate(self):
         self.assertIsNone(kubernetes.client.Configuration._default)

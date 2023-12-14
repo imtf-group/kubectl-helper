@@ -23,8 +23,6 @@ jobs:
       - name: Run tox
         shell: bash
         run: tox -e py
-        env:
-          CI: "true"
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
