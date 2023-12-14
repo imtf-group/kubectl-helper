@@ -3,7 +3,8 @@ import sys
 from unittest import mock
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
+if os.environ.get("CI", "false") != "true":
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
 
 import kubectl
 
