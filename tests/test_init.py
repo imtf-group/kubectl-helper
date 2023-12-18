@@ -2,6 +2,7 @@ import os
 import sys
 from unittest import mock
 import unittest
+import tarfile
 import kubernetes.client
 import kubernetes.config
 
@@ -342,6 +343,25 @@ class InitTests(unittest.TestCase):
                 namespace='default',
                 body={'spec': {'serviceAccountName': 'sa'}, 'metadata': {'namespace': 'default', 'name': 'toto'}, 'apiVersion': 'v1', 'kind': 'Pod'})
 
+    def test_patch_pod_no_name(self):
+            with self.assertRaises(kubectl.exceptions.KubectlNameException):
+                kubectl.patch("pod", body={'spec': {'serviceAccountName': 'sa'}})
+
+    def test_patch_pod_with_namespace_parameter(self):
+        m = mock.Mock()
+        m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {
+            'resources': [{
+                'kind': 'Pod', 'name': 'pods',
+                'namespaced': True, 'short_names': ['po'],
+                'verbs': ['get', 'list', 'patch']}]
+        }
+        with mock.patch("kubernetes.client", m):
+            kubectl.patch("pod", "toto", namespace='current', body={'metadata': {'namespace': 'test', 'name': 'toto'}, 'spec': {'serviceAccountName': 'sa'}})
+            m.CoreV1Api().patch_namespaced_pod.assert_called_once_with(
+                name='toto',
+                namespace='test',
+                body={'spec': {'serviceAccountName': 'sa'}, 'metadata': {'namespace': 'test', 'name': 'toto'}, 'apiVersion': 'v1', 'kind': 'Pod'})
+
     def test_patch_pod_wrong_verb(self):
         m = mock.Mock()
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {
@@ -412,6 +432,24 @@ class InitTests(unittest.TestCase):
             m.CoreV1Api().create_namespaced_pod.assert_called_once_with(
                 namespace='default',
                 body={'spec': {'serviceAccountName': 'sa'}, 'metadata': {'namespace': 'default', 'name': 'toto'}, 'apiVersion': 'v1', 'kind': 'Pod'})
+
+    def test_create_pod_no_name(self):
+            with self.assertRaises(kubectl.exceptions.KubectlNameException):
+                kubectl.create("pod", body={'spec': {'serviceAccountName': 'sa'}})
+
+    def test_create_pod_with_namespace_parameter(self):
+        m = mock.Mock()
+        m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {
+            'resources': [{
+                'kind': 'Pod', 'name': 'pods',
+                'namespaced': True, 'short_names': ['po'],
+                'verbs': ['get', 'list', 'create']}]
+        }
+        with mock.patch("kubernetes.client", m):
+            kubectl.create("pod", "toto", namespace='current', body={'metadata': {'namespace': 'test', 'name': 'toto'}, 'spec': {'serviceAccountName': 'sa'}})
+            m.CoreV1Api().create_namespaced_pod.assert_called_once_with(
+                namespace='test',
+                body={'spec': {'serviceAccountName': 'sa'}, 'metadata': {'namespace': 'test', 'name': 'toto'}, 'apiVersion': 'v1', 'kind': 'Pod'})
 
     def test_create_pod_wrong_verb(self):
         m = mock.Mock()
@@ -594,7 +632,7 @@ class InitTests(unittest.TestCase):
                     {'name': 'second'}]}}
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
         with mock.patch("kubernetes.client", mock_client):
-            with self.assertRaises(kubectl.exceptions.KubectlContainerNotFoundException):
+            with self.assertRaises(kubectl.exceptions.KubectlContainerNameException):
                 kubectl.exec("foobar", "ls -d /", "current", "another")
 
     def test_run(self):
@@ -644,7 +682,7 @@ class InitTests(unittest.TestCase):
                     {'name': 'first'},
                     {'name': 'second'}]}}
         with mock.patch("kubernetes.client", mock_client):
-            with self.assertRaises(kubectl.exceptions.KubectlContainerNotFoundException):
+            with self.assertRaises(kubectl.exceptions.KubectlContainerNameException):
                 kubectl.logs("foobar", "current", "another")
 
 
@@ -674,6 +712,138 @@ class InitTests(unittest.TestCase):
         with self.assertRaises(kubectl.exceptions.KubectlBaseException):
             kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='BOTH')
 
+    def test_cp_push(self):
+        mock_flow = mock.Mock()
+        mock_flow.is_open.return_value = True
+        mock_flow.peek_stdout.return_value = False
+        mock_flow.peek_stderr.return_value = False
+        mock_stream = mock.Mock()
+        mock_stream.stream.return_value = mock_flow
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
+        with mock.patch("kubernetes.client", mock_client):
+            with mock.patch("kubernetes.stream", mock_stream):
+                with open('mocked_file', 'w') as fd:
+                    fd.write("toto")
+                    with mock.patch("glob.glob", mock.MagicMock(return_value=['mocked_file'])):
+                        kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='PUSH')
+                        mock_flow.write_stdin.assert_called_once()
+
+    def test_cp_push_stderr(self):
+        mock_print = mock.Mock()
+        mock_flow = mock.Mock()
+        mock_flow.is_open.return_value = True
+        mock_flow.peek_stdout.return_value = False
+        mock_flow.peek_stderr.side_effect = [True, False]
+        mock_flow.read_stderr.return_value = "Mocked!"
+        mock_stream = mock.Mock()
+        mock_stream.stream.return_value = mock_flow
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
+        with mock.patch("kubernetes.client", mock_client):
+            with mock.patch("kubernetes.stream", mock_stream):
+                with mock.patch("builtins.print", mock_print):
+                    kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='PUSH')
+                mock_print.assert_called_once_with('STDERR: Mocked!')
+
+    def test_cp_push_stderr_2(self):
+        mock_print = mock.Mock()
+        mock_flow = mock.Mock()
+        mock_flow.is_open.return_value = True
+        mock_flow.peek_stderr.return_value = False
+        mock_flow.peek_stdout.side_effect = [True, False]
+        mock_flow.read_stdout.return_value = "Mocked!"
+        mock_stream = mock.Mock()
+        mock_stream.stream.return_value = mock_flow
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
+        with mock.patch("kubernetes.client", mock_client):
+            with mock.patch("kubernetes.stream", mock_stream):
+                with mock.patch("builtins.print", mock_print):
+                    kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='PUSH')
+                mock_print.assert_called_once_with('STDOUT: Mocked!')
+
+    def test_cp_pull(self):
+        mock_flow = mock.Mock()
+        mock_flow.is_open.side_effect = [True, False]
+        mock_flow.peek_stdout.return_value = True
+        with open("test", "wb") as fd:
+            fd.write(b"toto")
+        with tarfile.open("toto.tar", "w") as fd:
+            fd.add("test")
+        os.unlink("test")
+        with open("toto.tar", "rb") as fd:
+            mock_flow.read_stdout.return_value = fd.read().decode()
+        os.unlink("toto.tar")
+        mock_flow.peek_stderr.return_value = False
+        mock_stream = mock.Mock()
+        mock_stream.stream.return_value = mock_flow
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
+        with mock.patch("kubernetes.client", mock_client):
+            with mock.patch("kubernetes.stream", mock_stream):
+                kubectl.cp("nginx", "LOCALFILE", "REMOTEFILE", mode='PULL')
+            mock_flow.read_stdout.assert_called_once()
+            self.assertFalse(mock_flow.read_stderr.call_count)
+
+    def test_cp_pull_stderr(self):
+        mock_print = mock.Mock()
+        mock_flow = mock.Mock()
+        mock_flow.is_open.side_effect = [True, False]
+        mock_flow.peek_stdout.return_value = False
+        mock_flow.peek_stderr.return_value = True
+        mock_flow.read_stderr.return_value = "Mocked!"
+        mock_stream = mock.Mock()
+        mock_stream.stream.return_value = mock_flow
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
+        with mock.patch("kubernetes.client", mock_client):
+            with mock.patch("kubernetes.stream", mock_stream):
+                    with mock.patch("builtins.print", mock_print):
+                        with self.assertRaises(tarfile.ReadError):
+                            kubectl.cp("nginx", "LOCALFILE", "REMOTEFILE", mode='PULL')
+                    mock_print.assert_called_once_with("STDERR: Mocked!")
+                    
     def test_cp_wrong_container(self):
         mock_client = mock.Mock()
         mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
@@ -686,7 +856,7 @@ class InitTests(unittest.TestCase):
                     {'name': 'second'}]}}
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
         with mock.patch("kubernetes.client", mock_client):
-            with self.assertRaises(kubectl.exceptions.KubectlContainerNotFoundException):
+            with self.assertRaises(kubectl.exceptions.KubectlContainerNameException):
                 kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='PUSH', container='another')
 
 

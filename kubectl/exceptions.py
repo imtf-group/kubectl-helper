@@ -10,6 +10,12 @@ class KubectlMethodException(KubectlBaseException):
             'the server does not allow this method on the requested resource')
 
 
+class KubectlNameException(KubectlBaseException):
+    def __init__(self):
+        super().__init__(
+            'error: resource(s) were provided, but no name was specified')
+
+
 class KubectlTypeException(KubectlBaseException):
     def __init__(self, arg):
         self.type = arg
@@ -17,12 +23,12 @@ class KubectlTypeException(KubectlBaseException):
             f'error: the server doesn\'t have a resource type "{arg}"')
 
 
-class KubectlResourceNotFoundException(KubectlBaseException):
+class KubectlResourceException(KubectlBaseException):
     def __init__(self):
         super().__init__('the server could not find the requested resource')
 
 
-class KubectlContainerNotFoundException(KubectlBaseException):
+class KubectlContainerNameException(KubectlBaseException):
     def __init__(self, pod, namespace, container):
         self.pod = pod
         self.container = container

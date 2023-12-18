@@ -121,7 +121,7 @@ def scale(obj: str, name: str, namespace: str = None, replicas: int = 1) -> dict
     namespace = namespace or 'default'
     resource = _get_resource(obj)
     if resource['kind'] not in ('Deployment', 'StatefulSet', 'ReplicaSet'):
-        raise exceptions.KubectlResourceNotFoundException
+        raise exceptions.KubectlResourceException
     if 'patch' not in resource['verbs']:
         raise exceptions.KubectlMethodException
     ftn = f"namespaced_{camel_to_snake(resource['kind'])}_scale"
@@ -185,15 +185,17 @@ def delete(obj: str, name: str, namespace: str = None) -> dict:
 def create(obj: str, name: str = None, namespace: str = None, body: dict = None) -> dict:
     body = body or {}
     namespace = namespace or 'default'
+    if 'metadata' not in body:
+        body['metadata'] = {}
+    if name is not None and 'name' not in body['metadata']:
+        body['metadata']['name'] = name
+    if 'name' not in body['metadata']:
+        raise exceptions.KubectlNameException
     resource = _get_resource(obj)
     if 'create' not in resource['verbs']:
         raise exceptions.KubectlMethodException
-    if 'metadata' not in body:
-        body['metadata'] = {}
-    if resource['namespaced'] is True:
+    if resource['namespaced'] is True and 'namespace' not in body['metadata']:
         body['metadata']['namespace'] = namespace
-    if name is not None:
-        body['metadata']['name'] = name
     if 'apiVersion' not in body:
         body['apiVersion'] = resource['api']['group_version']
     if 'kind' not in body:
@@ -203,14 +205,14 @@ def create(obj: str, name: str = None, namespace: str = None, body: dict = None)
         ftn = camel_to_snake(resource['kind'])
         if resource['namespaced'] is True:
             ftn = f"namespaced_{ftn}"
-            opts['namespace'] = namespace
+            opts['namespace'] = body['metadata']['namespace']
     else:
         opts['plural'] = resource['name']
         opts['group'] = resource['api']['group']
         opts['version'] = resource['api']['version']
         if resource['namespaced'] is True:
             ftn = 'namespaced_custom_object'
-            opts['namespace'] = namespace
+            opts['namespace'] = body['metadata']['namespace']
         else:
             ftn = 'cluster_custom_object'
     return _api_call(resource['api']['name'], 'create', ftn, **opts)
@@ -219,15 +221,17 @@ def create(obj: str, name: str = None, namespace: str = None, body: dict = None)
 def patch(obj: str, name: str = None, namespace: str = None, body: dict = None) -> dict:
     body = body or {}
     namespace = namespace or 'default'
+    if 'metadata' not in body:
+        body['metadata'] = {}
+    if name is not None and 'name' not in body['metadata']:
+        body['metadata']['name'] = name
+    if 'name' not in body['metadata']:
+        raise exceptions.KubectlNameException
     resource = _get_resource(obj)
     if 'patch' not in resource['verbs']:
         raise exceptions.KubectlMethodException
-    if 'metadata' not in body:
-        body['metadata'] = {}
-    if resource['namespaced'] is True:
+    if resource['namespaced'] is True and 'namespace' not in body['metadata']:
         body['metadata']['namespace'] = namespace
-    if name is not None:
-        body['metadata']['name'] = name
     if 'apiVersion' not in body:
         body['apiVersion'] = resource['api']['group_version']
     if 'kind' not in body:
@@ -237,14 +241,14 @@ def patch(obj: str, name: str = None, namespace: str = None, body: dict = None) 
         ftn = camel_to_snake(resource['kind'])
         if resource['namespaced'] is True:
             ftn = f"namespaced_{ftn}"
-            opts['namespace'] = namespace
+            opts['namespace'] = body['metadata']['namespace']
     else:
         opts['plural'] = resource['name']
         opts['group'] = resource['api']['group']
         opts['version'] = resource['api']['version']
         if resource['namespaced'] is True:
             ftn = 'namespaced_custom_object'
-            opts['namespace'] = namespace
+            opts['namespace'] = body['metadata']['namespace']
         else:
             ftn = 'cluster_custom_object'
     return _api_call(resource['api']['name'], 'patch', ftn, **opts)
@@ -276,7 +280,7 @@ def run(name: str, image: str, namespace: str = None, annotations: dict = None,
 def annotate(obj, name: str, namespace: str = None,
              overwrite: bool = False, **annotations) -> dict:
     body = get(obj, name, namespace)
-    current = body['metadata'].get('annotations', {})
+    current = body['metadata'].get('annotations', {}) or {}
     if overwrite is False:
         for key in current:
             if key in annotations:
@@ -297,7 +301,7 @@ def logs(name: str, namespace: str = None, container: str = None) -> str:
         container = resp['spec']['containers'][0]['name']
     else:
         if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
-            raise exceptions.KubectlContainerNotFoundException(name, namespace, container)
+            raise exceptions.KubectlContainerNameException(name, namespace, container)
     return api.read_namespaced_pod_log(
         name,
         namespace,
@@ -329,7 +333,7 @@ def exec(name: str, command: list, namespace: str = None, container: str = None)
         container = resp['spec']['containers'][0]['name']
     else:
         if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
-            raise exceptions.KubectlContainerNotFoundException(name, namespace, container)
+            raise exceptions.KubectlContainerNameException(name, namespace, container)
     resp = kubernetes.stream.stream(
         api.connect_get_namespaced_pod_exec,
         name,
@@ -354,7 +358,7 @@ def cp(name: str, local_path: str, remote_path: str,
         container = resp['spec']['containers'][0]['name']
     else:
         if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
-            raise exceptions.KubectlContainerNotFoundException(name, namespace, container)
+            raise exceptions.KubectlContainerNameException(name, namespace, container)
     if mode == 'PUSH':
         command = ['tar', 'xf', '-', '-C', remote_path]
         resp = kubernetes.stream.stream(
