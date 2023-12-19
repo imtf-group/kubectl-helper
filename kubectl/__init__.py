@@ -1,3 +1,8 @@
+"""
+Kubectl helpers for python-kubernetes
+That bunch of functions mimic kubectl behaviour and options
+"""
+
 import os.path
 import tarfile
 import glob
@@ -15,11 +20,13 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def camel_to_snake(name: str) -> str:
+    """Converts Camel-style string to Snake-style string"""
     name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', name).lower()
 
 
 def snake_to_camel(name: str) -> str:
+    """Converts Snake-style string to Camel-style string"""
     name = name.split('_')
     return name[0] + ''.join(ele.title() for ele in name[1:])
 
@@ -37,6 +44,8 @@ def _prepare_body(body):
 
 
 def load_kubeconfig(host: str = None, api_key: str = None, certificate: str = None):
+    """Create configuration so python-kubernetes can access resources.
+    With no arguments, Try to get config from ~/.kube/config or KUBECONFIG"""
     if not host:
         kubernetes.config.load_kube_config()
         return
@@ -57,6 +66,8 @@ def load_kubeconfig(host: str = None, api_key: str = None, certificate: str = No
 
 
 def _get_resource(obj: str) -> dict:
+    """From a resource name or alias, extract the API name
+    and version to use from api-resources"""
     api = kubernetes.client.CoreV1Api()
     for res in api.get_api_resources().to_dict()['resources']:
         if res['name'] == obj or res['kind'].lower() == obj.lower() or \
@@ -80,10 +91,11 @@ def _get_resource(obj: str) -> dict:
                     'version': api_group['preferred_version']['version'],
                     'group_version': api_group['preferred_version']['group_version']}
                 return res
-    raise exceptions.KubectlTypeException(obj)
+    raise exceptions.KubectlResourceTypeException(obj)
 
 
 def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
+    """Execute calls directly to python-kubernetes"""
     ftn = f"{verb}_{resource}"
     name = None
     if verb == 'list' and 'name' in opts:
@@ -118,10 +130,17 @@ def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
 
 
 def scale(obj: str, name: str, namespace: str = None, replicas: int = 1) -> dict:
+    """Scale Apps resources
+    :param obj: resource type
+    :param name: resource name
+    :param namespace: namespace
+    :param replicas: number of expected replicas once scaled
+    :returns: patch_namespaced_object_scale JSON
+    :raises exceptions.KubectlResourceNotFoundException: if not a Apps resource"""
     namespace = namespace or 'default'
     resource = _get_resource(obj)
     if resource['kind'] not in ('Deployment', 'StatefulSet', 'ReplicaSet'):
-        raise exceptions.KubectlResourceException
+        raise exceptions.KubectlResourceNotFoundException
     if 'patch' not in resource['verbs']:
         raise exceptions.KubectlMethodException
     ftn = f"namespaced_{camel_to_snake(resource['kind'])}_scale"
@@ -133,6 +152,14 @@ def scale(obj: str, name: str, namespace: str = None, replicas: int = 1) -> dict
 
 def get(obj: str, name: str = None, namespace: str = None,
         labels: str = None, all_namespaces: bool = False) -> dict:
+    """Get or list resource(s) (similar to 'kubectl get')
+    :param obj: resource type
+    :param name: resource name
+    :param namespace: namespace
+    :param labels: kubernetes labels
+    :param all_namespaces: scope where the resource must be gotten from
+    :returns: data similar to 'kubectl get' in JSON format
+    :raises exceptions.KubectlMethodException: if the resource cannot be 'gotten'"""
     resource = _get_resource(obj)
     verb = 'get' if name else 'list'
     if verb not in resource['verbs']:
@@ -160,6 +187,12 @@ def get(obj: str, name: str = None, namespace: str = None,
 
 
 def delete(obj: str, name: str, namespace: str = None) -> dict:
+    """Delete a resource (similar to 'kubectl delete')
+    :param obj: resource type
+    :param name: resource name
+    :param namespace: namespace
+    :returns: data similar to 'kubectl delete' in JSON format
+    :raises exceptions.KubectlMethodException: if the resource cannot be 'deleted'"""
     namespace = namespace or 'default'
     resource = _get_resource(obj)
     if 'delete' not in resource['verbs']:
@@ -183,6 +216,13 @@ def delete(obj: str, name: str, namespace: str = None) -> dict:
 
 
 def create(obj: str, name: str = None, namespace: str = None, body: dict = None) -> dict:
+    """Create a resource (similar to 'kubectl create')
+    :param obj: resource type
+    :param name: resource name
+    :param namespace: namespace
+    :param body: kubernetes manifest body (overrides name and namespace)
+    :returns: data similar to 'kubectl create' in JSON format
+    :raises exceptions.KubectlMethodException: if the resource cannot be 'created'"""
     body = body or {}
     namespace = namespace or 'default'
     if 'metadata' not in body:
@@ -190,7 +230,7 @@ def create(obj: str, name: str = None, namespace: str = None, body: dict = None)
     if name is not None and 'name' not in body['metadata']:
         body['metadata']['name'] = name
     if 'name' not in body['metadata']:
-        raise exceptions.KubectlNameException
+        raise exceptions.KubectlResourceNameException
     resource = _get_resource(obj)
     if 'create' not in resource['verbs']:
         raise exceptions.KubectlMethodException
@@ -219,6 +259,13 @@ def create(obj: str, name: str = None, namespace: str = None, body: dict = None)
 
 
 def patch(obj: str, name: str = None, namespace: str = None, body: dict = None) -> dict:
+    """Patch a resource (similar to 'kubectl patch')
+    :param obj: resource type
+    :param name: resource name
+    :param namespace: namespace
+    :param body: kubernetes manifest body (overrides name and namespace)
+    :returns: data similar to 'kubectl patch' in JSON format
+    :raises exceptions.KubectlMethodException: if the resource cannot be 'patched'"""
     body = body or {}
     namespace = namespace or 'default'
     if 'metadata' not in body:
@@ -226,7 +273,7 @@ def patch(obj: str, name: str = None, namespace: str = None, body: dict = None) 
     if name is not None and 'name' not in body['metadata']:
         body['metadata']['name'] = name
     if 'name' not in body['metadata']:
-        raise exceptions.KubectlNameException
+        raise exceptions.KubectlResourceNameException
     resource = _get_resource(obj)
     if 'patch' not in resource['verbs']:
         raise exceptions.KubectlMethodException
@@ -256,6 +303,15 @@ def patch(obj: str, name: str = None, namespace: str = None, body: dict = None) 
 
 def run(name: str, image: str, namespace: str = None, annotations: dict = None,
         labels: dict = None, env: dict = None, restart: str = 'Always') -> dict:
+    """Create a pod (similar to 'kubectl run')
+    :param obj: resource type
+    :param image: resource name
+    :param namespace: namespace
+    :param annotations: annotations
+    :param labels: labels
+    :param env: environment variables
+    :param restart: pod Restart policy
+    :returns: data similar to 'kubectl create po' in JSON format"""
     annotations = annotations or {}
     env = env or {}
     namespace = namespace or 'default'
@@ -279,6 +335,13 @@ def run(name: str, image: str, namespace: str = None, annotations: dict = None,
 
 def annotate(obj, name: str, namespace: str = None,
              overwrite: bool = False, **annotations) -> dict:
+    """Annotate a resource (similar to 'kubectl annotate')
+    :param obj: resource type
+    :param image: resource name
+    :param namespace: namespace
+    :param annotations: annotations
+    :param overwrite: Allow to overwrite existing annotations
+    :returns: data similar to 'kubectl annotate' in JSON format"""
     body = get(obj, name, namespace)
     current = body['metadata'].get('annotations', {}) or {}
     if overwrite is False:
@@ -294,6 +357,11 @@ def annotate(obj, name: str, namespace: str = None,
 
 
 def logs(name: str, namespace: str = None, container: str = None) -> str:
+    """Get a pod logs (similar to 'kubectl logs')
+    :param name: pod name
+    :param namespace: namespace
+    :param container: container
+    :returns: data similar to 'kubectl logs' as a string"""
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
     resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
@@ -301,7 +369,7 @@ def logs(name: str, namespace: str = None, container: str = None) -> str:
         container = resp['spec']['containers'][0]['name']
     else:
         if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
-            raise exceptions.KubectlContainerNameException(name, namespace, container)
+            raise exceptions.KubectlInvalidContainerException(name, namespace, container)
     return api.read_namespaced_pod_log(
         name,
         namespace,
@@ -309,6 +377,9 @@ def logs(name: str, namespace: str = None, container: str = None) -> str:
 
 
 def apply(body: dict) -> dict:
+    """Create/Update a resource (similar to 'kubectl apply')
+    :param body: kubenetes manifest data in JSON format
+    :returns: data similar to 'kubectl apply' in JSON format"""
     name = body['metadata']['name']
     namespace = body['metadata'].get('namespace', None)
     obj = body['kind']
@@ -318,6 +389,12 @@ def apply(body: dict) -> dict:
 
 
 def top(obj: str, namespace: str = None, all_namespaces: bool = False) -> dict:
+    """Get metrics from pods or nodes (similar to 'kubectl top')
+    :param obj: resource type
+    :param namespace: namespace
+    :param all_namespaces: scope where the resource must be gotten from
+    :returns: data similar to 'kubectl top' in JSON format
+    :raises exceptions.KubectlBaseException: if the resource is neither pod nor nodes"""
     if obj not in ('pod', 'pods', 'node', 'nodes'):
         raise exceptions.KubectlBaseException(f'error: unknown command "{obj}"')
     obj = 'podmetrics' if obj in ('pod', 'pods') else 'nodemetrics'
@@ -326,6 +403,13 @@ def top(obj: str, namespace: str = None, all_namespaces: bool = False) -> dict:
 
 # pylint: disable=redefined-builtin
 def exec(name: str, command: list, namespace: str = None, container: str = None) -> str:
+    """Execute a command in a pod (similar to 'kubectl exec')
+    :param name: pod name
+    :param command: command to execute
+    :param namespace: namespace
+    :param container: container
+    :returns: command execution return value
+    :raises exceptions.KubectlInvalidContainerException: if the container doesnt exist"""
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
     resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
@@ -333,7 +417,7 @@ def exec(name: str, command: list, namespace: str = None, container: str = None)
         container = resp['spec']['containers'][0]['name']
     else:
         if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
-            raise exceptions.KubectlContainerNameException(name, namespace, container)
+            raise exceptions.KubectlInvalidContainerException(name, namespace, container)
     resp = kubernetes.stream.stream(
         api.connect_get_namespaced_pod_exec,
         name,
@@ -347,6 +431,15 @@ def exec(name: str, command: list, namespace: str = None, container: str = None)
 
 def cp(name: str, local_path: str, remote_path: str,
        namespace: str = None, container: str = None, mode='PUSH') -> bool:
+    """Copy a file/directory from/to a pod (similar to 'kubectl cp')
+    :param name: pod name
+    :param local_path: local source/destination
+    :param remote_path: remote source/destination
+    :param namespace: namespace
+    :param container: container
+    :param mode: copying way (PULL: from remote to local, PUSH: from local to remote)
+    :returns: success (or not) boolean
+    :raises exceptions.KubectlInvalidContainerException: if the container doesnt exist"""
     if mode not in ('PULL', 'PUSH'):
         raise exceptions.KubectlBaseException(
             'value for "mode" can only be "PULL" (from the container) '
@@ -358,7 +451,7 @@ def cp(name: str, local_path: str, remote_path: str,
         container = resp['spec']['containers'][0]['name']
     else:
         if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
-            raise exceptions.KubectlContainerNameException(name, namespace, container)
+            raise exceptions.KubectlInvalidContainerException(name, namespace, container)
     if mode == 'PUSH':
         command = ['tar', 'xf', '-', '-C', remote_path]
         resp = kubernetes.stream.stream(

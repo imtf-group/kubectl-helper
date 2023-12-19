@@ -49,7 +49,7 @@ class InitTests(unittest.TestCase):
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
         m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': []}
         with mock.patch("kubernetes.client", m):
-            with self.assertRaises(kubectl.exceptions.KubectlTypeException):
+            with self.assertRaises(kubectl.exceptions.KubectlResourceTypeException):
                 kubectl._get_resource("imtf")
 
     def test_list_namespace(self):
@@ -344,7 +344,7 @@ class InitTests(unittest.TestCase):
                 body={'spec': {'serviceAccountName': 'sa'}, 'metadata': {'namespace': 'default', 'name': 'toto'}, 'apiVersion': 'v1', 'kind': 'Pod'})
 
     def test_patch_pod_no_name(self):
-            with self.assertRaises(kubectl.exceptions.KubectlNameException):
+            with self.assertRaises(kubectl.exceptions.KubectlResourceNameException):
                 kubectl.patch("pod", body={'spec': {'serviceAccountName': 'sa'}})
 
     def test_patch_pod_with_namespace_parameter(self):
@@ -434,7 +434,7 @@ class InitTests(unittest.TestCase):
                 body={'spec': {'serviceAccountName': 'sa'}, 'metadata': {'namespace': 'default', 'name': 'toto'}, 'apiVersion': 'v1', 'kind': 'Pod'})
 
     def test_create_pod_no_name(self):
-            with self.assertRaises(kubectl.exceptions.KubectlNameException):
+            with self.assertRaises(kubectl.exceptions.KubectlResourceNameException):
                 kubectl.create("pod", body={'spec': {'serviceAccountName': 'sa'}})
 
     def test_create_pod_with_namespace_parameter(self):
@@ -632,7 +632,7 @@ class InitTests(unittest.TestCase):
                     {'name': 'second'}]}}
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
         with mock.patch("kubernetes.client", mock_client):
-            with self.assertRaises(kubectl.exceptions.KubectlContainerNameException):
+            with self.assertRaises(kubectl.exceptions.KubectlInvalidContainerException):
                 kubectl.exec("foobar", "ls -d /", "current", "another")
 
     def test_run(self):
@@ -682,7 +682,7 @@ class InitTests(unittest.TestCase):
                     {'name': 'first'},
                     {'name': 'second'}]}}
         with mock.patch("kubernetes.client", mock_client):
-            with self.assertRaises(kubectl.exceptions.KubectlContainerNameException):
+            with self.assertRaises(kubectl.exceptions.KubectlInvalidContainerException):
                 kubectl.logs("foobar", "current", "another")
 
 
@@ -856,7 +856,7 @@ class InitTests(unittest.TestCase):
                     {'name': 'second'}]}}
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
         with mock.patch("kubernetes.client", mock_client):
-            with self.assertRaises(kubectl.exceptions.KubectlContainerNameException):
+            with self.assertRaises(kubectl.exceptions.KubectlInvalidContainerException):
                 kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='PUSH', container='another')
 
 
