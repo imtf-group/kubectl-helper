@@ -327,24 +327,20 @@ command execution return value
 #### cp
 
 ```python
-def cp(name: str,
-       local_path: str,
-       remote_path: str,
+def cp(source: str,
+       destination: str,
        namespace: str = None,
-       container: str = None,
-       mode='PUSH') -> bool
+       container: str = None) -> bool
 ```
 
 Copy a file/directory from/to a pod (similar to 'kubectl cp')
 
 **Arguments**:
 
-- `name`: pod name
-- `local_path`: local source/destination
-- `remote_path`: remote source/destination
+- `source`: source (pod:path if remote)
+- `destination`: destination (pod:path if remote)
 - `namespace`: namespace
 - `container`: container
-- `mode`: copying way (PULL: from remote to local, PUSH: from local to remote)
 
 **Raises**:
 

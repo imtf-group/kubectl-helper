@@ -710,7 +710,12 @@ class InitTests(unittest.TestCase):
 
     def test_cp_not_pull_or_push(self):
         with self.assertRaises(kubectl.exceptions.KubectlBaseException):
-            kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='BOTH')
+            kubectl.cp("LOCALFILE", "REMOTEFILE")
+
+    def test_cp_both_pull_or_push(self):
+        with self.assertRaises(kubectl.exceptions.KubectlBaseException):
+            kubectl.cp("nginx:LOCALFILE", "nginx:REMOTEFILE")
+
 
     def test_cp_push(self):
         mock_flow = mock.Mock()
@@ -734,7 +739,7 @@ class InitTests(unittest.TestCase):
                 with open('mocked_file', 'w') as fd:
                     fd.write("toto")
                     with mock.patch("glob.glob", mock.MagicMock(return_value=['mocked_file'])):
-                        kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='PUSH')
+                        kubectl.cp("LOCALFILE", "nginx:REMOTEFILE")
                         mock_flow.write_stdin.assert_called_once()
 
     def test_cp_push_stderr(self):
@@ -759,7 +764,7 @@ class InitTests(unittest.TestCase):
         with mock.patch("kubernetes.client", mock_client):
             with mock.patch("kubernetes.stream", mock_stream):
                 with mock.patch("builtins.print", mock_print):
-                    kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='PUSH')
+                    kubectl.cp("LOCALFILE", "nginx:REMOTEFILE")
                 mock_print.assert_called_once_with('STDERR: Mocked!')
 
     def test_cp_push_stderr_2(self):
@@ -784,7 +789,7 @@ class InitTests(unittest.TestCase):
         with mock.patch("kubernetes.client", mock_client):
             with mock.patch("kubernetes.stream", mock_stream):
                 with mock.patch("builtins.print", mock_print):
-                    kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='PUSH')
+                    kubectl.cp("LOCALFILE", "nginx:REMOTEFILE")
                 mock_print.assert_called_once_with('STDOUT: Mocked!')
 
     def test_cp_pull(self):
@@ -814,7 +819,7 @@ class InitTests(unittest.TestCase):
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
         with mock.patch("kubernetes.client", mock_client):
             with mock.patch("kubernetes.stream", mock_stream):
-                kubectl.cp("nginx", "LOCALFILE", "REMOTEFILE", mode='PULL')
+                kubectl.cp("nginx:LOCALFILE", "REMOTEFILE")
             mock_flow.read_stdout.assert_called_once()
             self.assertFalse(mock_flow.read_stderr.call_count)
 
@@ -841,7 +846,7 @@ class InitTests(unittest.TestCase):
             with mock.patch("kubernetes.stream", mock_stream):
                     with mock.patch("builtins.print", mock_print):
                         with self.assertRaises(tarfile.ReadError):
-                            kubectl.cp("nginx", "LOCALFILE", "REMOTEFILE", mode='PULL')
+                            kubectl.cp("nginx:LOCALFILE", "REMOTEFILE")
                     mock_print.assert_called_once_with("STDERR: Mocked!")
                     
     def test_cp_wrong_container(self):
@@ -857,7 +862,7 @@ class InitTests(unittest.TestCase):
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
         with mock.patch("kubernetes.client", mock_client):
             with self.assertRaises(kubectl.exceptions.KubectlInvalidContainerException):
-                kubectl.cp("nginx", "LOCALFILE", "/REMOTEFILE", mode='PUSH', container='another')
+                kubectl.cp("LOCALFILE", "nginx:REMOTEFILE", container='another')
 
 
 if __name__ == "__main__":

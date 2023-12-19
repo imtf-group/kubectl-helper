@@ -43,6 +43,16 @@ def _prepare_body(body):
     return body
 
 
+def _find_container(name: str, namespace: str, container: str = None):
+    api = kubernetes.client.CoreV1Api()
+    resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
+    if container is None:
+        container = resp['spec']['containers'][0]['name']
+    else:
+        if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
+            raise exceptions.KubectlInvalidContainerException(name, namespace, container)
+    return container
+
 def load_kubeconfig(host: str = None, api_key: str = None, certificate: str = None):
     """Create configuration so python-kubernetes can access resources.
     With no arguments, Try to get config from ~/.kube/config or KUBECONFIG"""
@@ -429,34 +439,30 @@ def exec(name: str, command: list, namespace: str = None, container: str = None)
     return resp
 
 
-def cp(name: str, local_path: str, remote_path: str,
-       namespace: str = None, container: str = None, mode='PUSH') -> bool:
+def cp(source: str, destination: str,
+       namespace: str = None, container: str = None) -> bool:
     """Copy a file/directory from/to a pod (similar to 'kubectl cp')
-    :param name: pod name
-    :param local_path: local source/destination
-    :param remote_path: remote source/destination
+    :param source: source (pod:path if remote)
+    :param destination: destination (pod:path if remote)
     :param namespace: namespace
     :param container: container
-    :param mode: copying way (PULL: from remote to local, PUSH: from local to remote)
     :returns: success (or not) boolean
     :raises exceptions.KubectlInvalidContainerException: if the container doesnt exist"""
-    if mode not in ('PULL', 'PUSH'):
+    if len(source.split(':')) > 1 and len(destination.split(':')) > 1:
         raise exceptions.KubectlBaseException(
-            'value for "mode" can only be "PULL" (from the container) '
-            'or "PUSH" (to the container)')
+            'error: one of src or dest must be a local file specification')
+    if len(source.split(':')) == 1 and len(destination.split(':')) == 1:
+        raise exceptions.KubectlBaseException(
+            'error: one of src or dest must be a remote file specification')
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
-    resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
-    if container is None:
-        container = resp['spec']['containers'][0]['name']
-    else:
-        if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
-            raise exceptions.KubectlInvalidContainerException(name, namespace, container)
-    if mode == 'PUSH':
+    if len(destination.split(':')) > 1:
+        pod_name, remote_path = destination.split(':', 1)
+        container = _find_container(pod_name, namespace, container)
         command = ['tar', 'xf', '-', '-C', remote_path]
         resp = kubernetes.stream.stream(
             api.connect_get_namespaced_pod_exec,
-            name,
+            pod_name,
             namespace,
             container=container,
             command=command,
@@ -466,7 +472,7 @@ def cp(name: str, local_path: str, remote_path: str,
 
         with tempfile.TemporaryFile() as tar_buffer:
             with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
-                for source_file in glob.glob(local_path):
+                for source_file in glob.glob(source):
                     tar.add(source_file)
 
             tar_buffer.seek(0)
@@ -486,10 +492,12 @@ def cp(name: str, local_path: str, remote_path: str,
                     break
             resp.close()
     else:
+        pod_name, remote_path = source.split(':', 1)
+        container = _find_container(pod_name, namespace, container)
         command = ['tar', 'cf', '-', remote_path]
         resp = kubernetes.stream.stream(
             api.connect_get_namespaced_pod_exec,
-            name,
+            pod_name,
             namespace,
             container=container,
             command=command,
@@ -509,11 +517,11 @@ def cp(name: str, local_path: str, remote_path: str,
             tar_buffer.seek(0)
             with tarfile.open(fileobj=tar_buffer, mode='r:') as tar:
                 for member in tar.getmembers():
-                    if os.path.isdir(local_path):
+                    if os.path.isdir(destination):
                         local_file = os.path.join(
-                            local_path, os.path.basename(member.name))
+                            destination, os.path.basename(member.name))
                     else:
-                        local_file = local_path
+                        local_file = destination
                     tar.makefile(member, local_file)
     return True
 
