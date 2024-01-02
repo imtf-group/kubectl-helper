@@ -273,6 +273,18 @@ class InitTests(unittest.TestCase):
             kubectl.delete("pod", "toto")
             m.CoreV1Api().delete_namespaced_pod.assert_called_once_with(name='toto', namespace='default')
 
+    def test_delete_pod_dry_run(self):
+        m = mock.Mock()
+        m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {
+            'resources': [{
+                'kind': 'Pod', 'name': 'pods',
+                'namespaced': True, 'short_names': ['po'],
+                'verbs': ['get', 'list', 'delete']}]
+        }
+        with mock.patch("kubernetes.client", m):
+            kubectl.delete("pod", "toto", dry_run=True)
+            m.CoreV1Api().delete_namespaced_pod.assert_called_once_with(name='toto', namespace='default', dry_run='All')
+
     def test_delete_pod_wrong_verb(self):
         m = mock.Mock()
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {
@@ -342,6 +354,22 @@ class InitTests(unittest.TestCase):
                 name='toto',
                 namespace='default',
                 body={'spec': {'serviceAccountName': 'sa'}, 'metadata': {'namespace': 'default', 'name': 'toto'}, 'apiVersion': 'v1', 'kind': 'Pod'})
+
+    def test_patch_pod_dry_run(self):
+        m = mock.Mock()
+        m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {
+            'resources': [{
+                'kind': 'Pod', 'name': 'pods',
+                'namespaced': True, 'short_names': ['po'],
+                'verbs': ['get', 'list', 'patch']}]
+        }
+        with mock.patch("kubernetes.client", m):
+            kubectl.patch("pod", "toto", body={'spec': {'serviceAccountName': 'sa'}}, dry_run=True)
+            m.CoreV1Api().patch_namespaced_pod.assert_called_once_with(
+                name='toto',
+                namespace='default',
+                body={'spec': {'serviceAccountName': 'sa'}, 'metadata': {'namespace': 'default', 'name': 'toto'}, 'apiVersion': 'v1', 'kind': 'Pod'},
+                dry_run='All')
 
     def test_patch_pod_no_name(self):
             with self.assertRaises(kubectl.exceptions.KubectlResourceNameException):
@@ -432,6 +460,21 @@ class InitTests(unittest.TestCase):
             m.CoreV1Api().create_namespaced_pod.assert_called_once_with(
                 namespace='default',
                 body={'spec': {'serviceAccountName': 'sa'}, 'metadata': {'namespace': 'default', 'name': 'toto'}, 'apiVersion': 'v1', 'kind': 'Pod'})
+
+    def test_create_pod_dry_run(self):
+        m = mock.Mock()
+        m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {
+            'resources': [{
+                'kind': 'Pod', 'name': 'pods',
+                'namespaced': True, 'short_names': ['po'],
+                'verbs': ['get', 'list', 'create']}]
+        }
+        with mock.patch("kubernetes.client", m):
+            kubectl.create("pod", "toto", body={'spec': {'serviceAccountName': 'sa'}}, dry_run=True)
+            m.CoreV1Api().create_namespaced_pod.assert_called_once_with(
+                namespace='default',
+                body={'spec': {'serviceAccountName': 'sa'}, 'metadata': {'namespace': 'default', 'name': 'toto'}, 'apiVersion': 'v1', 'kind': 'Pod'},
+                dry_run='All')
 
     def test_create_pod_no_name(self):
             with self.assertRaises(kubectl.exceptions.KubectlResourceNameException):

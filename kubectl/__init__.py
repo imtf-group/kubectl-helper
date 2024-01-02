@@ -182,7 +182,7 @@ def scale(obj: str, name: str, namespace: str = None, replicas: int = 1) -> dict
 
 
 def get(obj: str, name: str = None, namespace: str = None,
-        labels: str = None, all_namespaces: bool = False) -> dict:
+        labels: str = None, all_namespaces: bool = False, ) -> dict:
     """Get or list resource(s) (similar to 'kubectl get')
     :param obj: resource type
     :param name: resource name
@@ -217,11 +217,12 @@ def get(obj: str, name: str = None, namespace: str = None,
     return _api_call(resource['api']['name'], 'list', ftn, **opts)
 
 
-def delete(obj: str, name: str, namespace: str = None) -> dict:
+def delete(obj: str, name: str, namespace: str = None, dry_run: bool = False) -> dict:
     """Delete a resource (similar to 'kubectl delete')
     :param obj: resource type
     :param name: resource name
     :param namespace: namespace
+    :param dry_run: dry-run
     :returns: data similar to 'kubectl delete' in JSON format
     :raises exceptions.KubectlMethodException: if the resource cannot be 'deleted'"""
     namespace = namespace or 'default'
@@ -243,15 +244,19 @@ def delete(obj: str, name: str, namespace: str = None) -> dict:
             opts['namespace'] = namespace
         else:
             ftn = 'cluster_custom_object'
+    if dry_run:
+        opts['dry_run'] = 'All'
     return _api_call(resource['api']['name'], 'delete', ftn, **opts)
 
 
-def create(obj: str, name: str = None, namespace: str = None, body: dict = None) -> dict:
+def create(obj: str, name: str = None, namespace: str = None,
+           body: dict = None, dry_run: bool = False) -> dict:
     """Create a resource (similar to 'kubectl create')
     :param obj: resource type
     :param name: resource name
     :param namespace: namespace
     :param body: kubernetes manifest body (overrides name and namespace)
+    :param dry_run: dry-run
     :returns: data similar to 'kubectl create' in JSON format
     :raises exceptions.KubectlMethodException: if the resource cannot be 'created'"""
     body = body or {}
@@ -286,15 +291,19 @@ def create(obj: str, name: str = None, namespace: str = None, body: dict = None)
             opts['namespace'] = body['metadata']['namespace']
         else:
             ftn = 'cluster_custom_object'
+    if dry_run:
+        opts['dry_run'] = 'All'
     return _api_call(resource['api']['name'], 'create', ftn, **opts)
 
 
-def patch(obj: str, name: str = None, namespace: str = None, body: dict = None) -> dict:
+def patch(obj: str, name: str = None, namespace: str = None,
+          body: dict = None, dry_run: bool = False) -> dict:
     """Patch a resource (similar to 'kubectl patch')
     :param obj: resource type
     :param name: resource name
     :param namespace: namespace
     :param body: kubernetes manifest body (overrides name and namespace)
+    :param dry_run: dry-run
     :returns: data similar to 'kubectl patch' in JSON format
     :raises exceptions.KubectlMethodException: if the resource cannot be 'patched'"""
     body = body or {}
@@ -329,6 +338,8 @@ def patch(obj: str, name: str = None, namespace: str = None, body: dict = None) 
             opts['namespace'] = body['metadata']['namespace']
         else:
             ftn = 'cluster_custom_object'
+    if dry_run:
+        opts['dry_run'] = 'All'
     return _api_call(resource['api']['name'], 'patch', ftn, **opts)
 
 
@@ -407,16 +418,17 @@ def logs(name: str, namespace: str = None, container: str = None) -> str:
         container=container)
 
 
-def apply(body: dict) -> dict:
+def apply(body: dict, dry_run: bool = False) -> dict:
     """Create/Update a resource (similar to 'kubectl apply')
     :param body: kubenetes manifest data in JSON format
+    :param dry_run: dry-run
     :returns: data similar to 'kubectl apply' in JSON format"""
     name = body['metadata']['name']
     namespace = body['metadata'].get('namespace', None)
     obj = body['kind']
     if get(obj, name, namespace) == {}:
-        return create(obj, name, namespace, body)
-    return patch(obj, name, namespace, body)
+        return create(obj, name, namespace, body, dry_run=dry_run)
+    return patch(obj, name, namespace, body, dry_run=dry_run)
 
 
 def top(obj: str, namespace: str = None, all_namespaces: bool = False) -> dict:
