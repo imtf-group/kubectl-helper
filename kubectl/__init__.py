@@ -4,6 +4,7 @@ That bunch of functions mimic kubectl behaviour and options
 """
 
 import os.path
+import atexit
 import tarfile
 import glob
 import re
@@ -17,6 +18,17 @@ from kubectl import exceptions
 
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+_temp_files = []
+
+
+def _cleanup_temp_files():
+    global _temp_files
+    for temp_file in _temp_files:
+        try:
+            os.remove(temp_file)
+        except OSError:
+            pass
+    _temp_files = []
 
 
 def camel_to_snake(name: str) -> str:
@@ -53,23 +65,30 @@ def _find_container(name: str, namespace: str, container: str = None):
             raise exceptions.KubectlInvalidContainerException(name, namespace, container)
     return container
 
+
 def load_kubeconfig(host: str = None, api_key: str = None, certificate: str = None):
     """Create configuration so python-kubernetes can access resources.
-    With no arguments, Try to get config from ~/.kube/config or KUBECONFIG"""
+    With no arguments, Try to get config from ~/.kube/config or KUBECONFIG
+    If set, certificate parameter is not Base64-encoded"""
+    global _temp_files
     if not host:
         kubernetes.config.load_kube_config()
         return
     configuration = kubernetes.client.Configuration()
     configuration.host = host
     if api_key:
-        configuration.api_key['authorization'] = api_key
-        configuration.api_key_prefix['authorization'] = 'Bearer'
+        configuration.api_key['authorization'] = f'Bearer {api_key}'
     if certificate:
         # pylint: disable=consider-using-with
         cafile = tempfile.NamedTemporaryFile(delete=False)
+        if isinstance(certificate, str):
+            certificate = certificate.encode()
         cafile.write(certificate)
         cafile.flush()
         configuration.ssl_ca_cert = cafile.name
+        if len(_temp_files) == 0:
+            atexit.register(_cleanup_temp_files)
+        _temp_files += [cafile.name]
     else:
         configuration.verify_ssl = False
     kubernetes.client.Configuration.set_default(configuration)

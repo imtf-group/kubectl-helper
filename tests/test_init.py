@@ -29,7 +29,7 @@ class InitTests(unittest.TestCase):
         self.assertEqual(kubernetes.client.Configuration._default.host, "http://localhost")
         self.assertEqual(
             kubernetes.client.Configuration._default.api_key,
-            {'authorization': 'APIKEY'})
+            {'authorization': 'Bearer APIKEY'})
         self.assertTrue(kubernetes.client.Configuration._default.verify_ssl)
         with open(kubernetes.client.Configuration._default.ssl_ca_cert) as fd:
             self.assertEqual(fd.read(), "CERTIFICATE")
@@ -40,7 +40,7 @@ class InitTests(unittest.TestCase):
         self.assertEqual(kubernetes.client.Configuration._default.host, "http://localhost")
         self.assertEqual(
             kubernetes.client.Configuration._default.api_key,
-            {'authorization': 'APIKEY'})
+            {'authorization': 'Bearer APIKEY'})
         self.assertFalse(kubernetes.client.Configuration._default.verify_ssl)
         self.assertIsNone(kubernetes.client.Configuration._default.ssl_ca_cert)
 
