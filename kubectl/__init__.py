@@ -160,7 +160,8 @@ def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
         return objs
 
 
-def scale(obj: str, name: str, namespace: str = None, replicas: int = 1) -> dict:
+def scale(obj: str, name: str, namespace: str = None,
+          replicas: int = 1, dry_run: bool = False) -> dict:
     """Scale Apps resources
     :param obj: resource type
     :param name: resource name
@@ -175,10 +176,14 @@ def scale(obj: str, name: str, namespace: str = None, replicas: int = 1) -> dict
     if 'patch' not in resource['verbs']:
         raise exceptions.KubectlMethodException
     ftn = f"namespaced_{camel_to_snake(resource['kind'])}_scale"
+    opts = {
+        'body': {"spec": {'replicas': replicas}},
+        'namespace': namespace,
+        'name': name}
+    if dry_run:
+        opts['dry_run'] = 'All'
     return _api_call(
-        'AppsV1Api', 'patch', ftn,
-        name=name, namespace=namespace,
-        body={"spec": {'replicas': replicas}})
+        'AppsV1Api', 'patch', ftn, **opts)
 
 
 def get(obj: str, name: str = None, namespace: str = None,

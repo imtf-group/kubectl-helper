@@ -261,6 +261,23 @@ class InitTests(unittest.TestCase):
             kubectl.scale("deploy", "foobar", replicas=2)
             m.AppsV1Api().patch_namespaced_deployment_scale.assert_called_once_with(name='foobar', namespace='default', body={'spec': {'replicas': 2}})
 
+    def test_scale_deployment_dry_run(self):
+        m = mock.Mock()
+        m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
+        m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
+            'name': 'apps',
+            'preferred_version': {'version': 'v1', 'group_version': 'apps/v1'}
+        }]}
+        m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
+            'resources': [{
+                'kind': 'Deployment', 'name': 'deployments',
+                'namespaced': True, 'short_names': ['deploy'],
+                'verbs': ['patch']}]
+        }
+        with mock.patch("kubernetes.client", m):
+            kubectl.scale("deploy", "foobar", replicas=2, dry_run=True)
+            m.AppsV1Api().patch_namespaced_deployment_scale.assert_called_once_with(name='foobar', namespace='default', body={'spec': {'replicas': 2}}, dry_run='All')
+
     def test_delete_pod(self):
         m = mock.Mock()
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {
