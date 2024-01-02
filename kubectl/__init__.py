@@ -19,6 +19,7 @@ from kubectl import exceptions
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 _temp_files = []
+_resource_cache = []
 
 
 def _cleanup_temp_files():
@@ -99,6 +100,12 @@ def load_kubeconfig(host: str = None, api_key: str = None, certificate: str = No
 def _get_resource(obj: str) -> dict:
     """From a resource name or alias, extract the API name
     and version to use from api-resources"""
+    # pylint: disable=global-statement
+    global _resource_cache
+    for _cache in _resource_cache:
+        if _cache['name'] == obj or _cache['kind'].lower() == obj.lower() or \
+                (_cache['short_names'] and obj in _cache['short_names']):
+            return _cache
     api = kubernetes.client.CoreV1Api()
     for res in api.get_api_resources().to_dict()['resources']:
         if res['name'] == obj or res['kind'].lower() == obj.lower() or \
@@ -107,6 +114,7 @@ def _get_resource(obj: str) -> dict:
                 'name': 'CoreV1Api',
                 'version': 'v1',
                 'group_version': 'v1'}
+            _resource_cache += [res]
             return res
     global_api = kubernetes.client.ApisApi()
     api = kubernetes.client.CustomObjectsApi()
@@ -121,6 +129,7 @@ def _get_resource(obj: str) -> dict:
                     'group': api_group['name'],
                     'version': api_group['preferred_version']['version'],
                     'group_version': api_group['preferred_version']['group_version']}
+                _resource_cache += [res]
                 return res
     raise exceptions.KubectlResourceTypeException(obj)
 

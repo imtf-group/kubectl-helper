@@ -14,6 +14,7 @@ class InitTests(unittest.TestCase):
 
     def setUp(self):
         kubernetes.client.Configuration._default = None
+        kubectl._resource_cache = []
 
     def test_config_with_kubeconfig(self):
         try:
