@@ -22,6 +22,7 @@ _temp_files = []
 
 
 def _cleanup_temp_files():
+    # pylint: disable=global-statement
     global _temp_files
     for temp_file in _temp_files:
         try:
@@ -70,6 +71,7 @@ def load_kubeconfig(host: str = None, api_key: str = None, certificate: str = No
     """Create configuration so python-kubernetes can access resources.
     With no arguments, Try to get config from ~/.kube/config or KUBECONFIG
     If set, certificate parameter is not Base64-encoded"""
+    # pylint: disable=global-statement
     global _temp_files
     if not host:
         kubernetes.config.load_kube_config()
