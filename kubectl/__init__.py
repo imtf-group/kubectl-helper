@@ -376,7 +376,8 @@ def run(name: str, image: str, namespace: str = None, annotations: dict = None,
 
 
 def annotate(obj, name: str, namespace: str = None,
-             overwrite: bool = False, **annotations) -> dict:
+             overwrite: bool = False, dry_run: bool = False,
+             **annotations) -> dict:
     """Annotate a resource (similar to 'kubectl annotate')
     :param obj: resource type
     :param image: resource name
@@ -395,7 +396,7 @@ def annotate(obj, name: str, namespace: str = None,
                     f"'{key}' already has a value ({current[key]})")
     current.update(annotations)
     body['metadata']['annotations'] = current
-    return patch(obj, name, namespace, body)
+    return patch(obj, name, namespace, body, dry_run=dry_run)
 
 
 def logs(name: str, namespace: str = None, container: str = None) -> str:
