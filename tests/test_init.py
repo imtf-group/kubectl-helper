@@ -21,7 +21,7 @@ class InitTests(unittest.TestCase):
             self.assertIsNone(kubernetes.client.Configuration._default)
             kubectl.connect()
             self.assertIsNotNone(kubernetes.client.Configuration._default)
-        except kubernetes.config.config_exception.ConfigException:
+        except kubectl.exceptions.KubectlConfigException:
             pass
 
     def test_config_with_exception(self):
