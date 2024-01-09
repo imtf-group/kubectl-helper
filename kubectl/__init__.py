@@ -78,9 +78,16 @@ def connect(host: str = None, api_key: str = None, certificate: str = None):
     if not host:
         try:
             socket.gethostbyname_ex("kubernetes.default.svc.cluster.local")
-            kubernetes.config.load_incluster_config()
+            _in_cluster = True
         except socket.gaierror:
-            kubernetes.config.load_kube_config()
+            _in_cluster = False
+        try:
+            if _in_cluster:
+                kubernetes.config.load_incluster_config()
+            else:
+                kubernetes.config.load_kube_config()
+        except kubernetes.config.config_exception.ConfigException as e:
+            raise exceptions.KubectlConfigException(str(e))
         return
     configuration = kubernetes.client.Configuration()
     configuration.host = host

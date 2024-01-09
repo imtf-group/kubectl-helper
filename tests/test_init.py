@@ -19,14 +19,21 @@ class InitTests(unittest.TestCase):
     def test_config_with_kubeconfig(self):
         try:
             self.assertIsNone(kubernetes.client.Configuration._default)
-            kubectl.load_kubeconfig()
+            kubectl.connect()
             self.assertIsNotNone(kubernetes.client.Configuration._default)
         except kubernetes.config.config_exception.ConfigException:
             pass
 
+    def test_config_with_exception(self):
+        m = mock.Mock()
+        m.side_effect = kubernetes.config.config_exception.ConfigException("ERROR")
+        with mock.patch("kubernetes.config.load_kube_config", m):
+            with self.assertRaises(kubectl.exceptions.KubectlConfigException):
+                kubectl.connect()
+
     def test_config_with_certificate(self):
         self.assertIsNone(kubernetes.client.Configuration._default)
-        kubectl.load_kubeconfig("http://localhost", "APIKEY", b"CERTIFICATE")
+        kubectl.connect("http://localhost", "APIKEY", b"CERTIFICATE")
         self.assertEqual(kubernetes.client.Configuration._default.host, "http://localhost")
         self.assertEqual(
             kubernetes.client.Configuration._default.api_key,
@@ -37,7 +44,7 @@ class InitTests(unittest.TestCase):
 
     def test_config_without_certificate(self):
         self.assertIsNone(kubernetes.client.Configuration._default)
-        kubectl.load_kubeconfig("http://localhost", "APIKEY")
+        kubectl.connect("http://localhost", "APIKEY")
         self.assertEqual(kubernetes.client.Configuration._default.host, "http://localhost")
         self.assertEqual(
             kubernetes.client.Configuration._default.api_key,
