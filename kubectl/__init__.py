@@ -9,6 +9,7 @@ import tarfile
 import glob
 import re
 import json
+import socket
 import tempfile
 import urllib3
 import kubernetes.client
@@ -68,14 +69,18 @@ def _find_container(name: str, namespace: str, container: str = None):
     return container
 
 
-def load_kubeconfig(host: str = None, api_key: str = None, certificate: str = None):
+def connect(host: str = None, api_key: str = None, certificate: str = None):
     """Create configuration so python-kubernetes can access resources.
     With no arguments, Try to get config from ~/.kube/config or KUBECONFIG
     If set, certificate parameter is not Base64-encoded"""
     # pylint: disable=global-statement
     global _temp_files
     if not host:
-        kubernetes.config.load_kube_config()
+        try:
+            socket.gethostbyname_ex("kubernetes.default.svc.cluster.local")
+            kubernetes.config.load_incluster_config()
+        except socket.gaierror:
+            kubernetes.config.load_kube_config()
         return
     configuration = kubernetes.client.Configuration()
     configuration.host = host
@@ -574,24 +579,4 @@ def cp(source: str, destination: str,
     return True
 
 
-# def wait(obj: str, jsonpath: str, value: str, name: str = None,
-#          namespace: str = None, labels: str = None, timeout: int = 60):
-#     """
-#     Examples:
-#        kubectl.wait('pods', '{@[*].metadata.name}', 'nginx')
-#     """
-#     seconds = 0
-#     if jsonpath[0] == '{' and jsonpath[-1] == '}':
-#         jsonpath = jsonpath[1:-1]
-#     if jsonpath[0] == '.':
-#         jsonpath = jsonpath[1:]
-#     query = jp.parse(jsonpath)
-#     while True:
-#         obj_value = get(obj, name, namespace, labels)
-#         if any(match.value == value for match in query.find(obj_value)):
-#             break
-#         time.sleep(2)
-#         seconds += 2
-#         if seconds > timeout:
-#             raise TimeoutError('timed out waiting for the condition')
-#     return True
+load_kubeconfig = connect
