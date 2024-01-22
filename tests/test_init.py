@@ -748,7 +748,8 @@ class InitTests(unittest.TestCase):
             'spec': {
                 'containers': [
                     {'name': 'first'},
-                    {'name': 'second'}]}}
+                    {'name': 'second'}],
+                'init_containers': []}}
         with mock.patch("kubernetes.client", mock_client):
             with self.assertRaises(kubectl.exceptions.KubectlInvalidContainerException):
                 kubectl.logs("foobar", "current", "another")
