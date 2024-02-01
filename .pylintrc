@@ -2,5 +2,5 @@
 
 max-branches=20
 max-locals=25
-disable=too-many-arguments
+disable=too-many-arguments,too-many-statements
 

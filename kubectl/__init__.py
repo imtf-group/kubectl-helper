@@ -9,7 +9,6 @@ import tarfile
 import glob
 import re
 import json
-import socket
 import tempfile
 import urllib3
 import kubernetes.client
@@ -82,7 +81,7 @@ def connect(host: str = None, api_key: str = None, certificate: str = None):
             try:
                 kubernetes.config.load_incluster_config()
             except kubernetes.config.config_exception.ConfigException:
-                raise exceptions.KubectlConfigException(str(e))
+                raise exceptions.KubectlConfigException(str(e)) from e
         return
     configuration = kubernetes.client.Configuration()
     configuration.host = host
@@ -533,7 +532,7 @@ def cp(source: str, destination: str,
         with tempfile.TemporaryFile() as tar_buffer:
             with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
                 for source_file in glob.glob(source):
-                    tar.add(source_file)
+                    tar.add(source_file, os.path.basename(source_file))
 
             tar_buffer.seek(0)
             commands = []
@@ -576,6 +575,8 @@ def cp(source: str, destination: str,
             tar_buffer.flush()
             tar_buffer.seek(0)
             with tarfile.open(fileobj=tar_buffer, mode='r:') as tar:
+                if not tar.getmembers():
+                    return False
                 for member in tar.getmembers():
                     if os.path.isdir(destination):
                         local_file = os.path.join(
