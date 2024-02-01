@@ -549,7 +549,11 @@ def cp(source: str, destination: str,
                     print(f"STDERR: {resp.read_stderr()}")
                 if commands:
                     c = commands.pop(0)
-                    resp.write_stdin(c.decode())
+                    try:
+                        c = c.decode()
+                    except UnicodeDecodeError:
+                        pass
+                    resp.write_stdin(c)
                 else:
                     break
             resp.close()
@@ -571,7 +575,11 @@ def cp(source: str, destination: str,
                 resp.update(timeout=1)
                 if resp.peek_stdout():
                     out = resp.read_stdout()
-                    tar_buffer.write(out.encode())
+                    try:
+                        out = out.encode()
+                    except UnicodeEncodeError:
+                        pass
+                    tar_buffer.write(out)
                 if resp.peek_stderr():
                     print(f"STDERR: {resp.read_stderr()}")
             resp.close()
