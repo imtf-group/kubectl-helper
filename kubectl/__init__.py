@@ -477,7 +477,7 @@ def exec(name: str, command: list, namespace: str = None, container: str = None)
     :param command: command to execute
     :param namespace: namespace
     :param container: container
-    :returns: command execution return value
+    :returns: list of command execution exit code and return value
     :raises exceptions.KubectlInvalidContainerException: if the container doesnt exist"""
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
@@ -494,8 +494,11 @@ def exec(name: str, command: list, namespace: str = None, container: str = None)
         container=container,
         command=command,
         stderr=True, stdin=False,
-        stdout=True, tty=False)
-    return resp
+        stdout=True, tty=False,
+        _preload_content=False)
+    resp.run_forever()
+    err = resp.read_channel(kubernetes.stream.ws_client.ERROR_CHANNEL)
+    return json.loads(err)["status"] == "Success", ''.join(resp.read_all())
 
 
 def cp(source: str, destination: str,
