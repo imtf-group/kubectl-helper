@@ -748,6 +748,32 @@ class InitTests(unittest.TestCase):
                     'mock_function', 'foobar', 'current', container='first', command='ls -d /',
                     stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False)
 
+
+    def test_exec_default_container(self):
+        mock_ws = mock.Mock()
+        mock_ws.read_channel.return_value = '{"status": "Success"}'
+        mock_ws.read_all.return_value = ['/usr\n', '/etc\n', '/bin\n']
+        mock_ws.is_open.return_value = False
+        mock_stream = mock.Mock()
+        mock_stream.stream.return_value = mock_ws
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current',
+                'annotations': {'kubectl.kubernetes.io/default-container': 'second'}},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
+        with mock.patch("kubernetes.client", mock_client):
+            with mock.patch("kubernetes.stream", mock_stream):
+                self.assertEqual(kubectl.exec("foobar", "ls -d /", "current"), (True, '/usr\n/etc\n/bin\n'))
+                mock_stream.stream.assert_called_once_with(
+                    'mock_function', 'foobar', 'current', container='second', command='ls -d /',
+                    stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False)
+
     def test_exec_wrong_container(self):
         mock_client = mock.Mock()
         mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
@@ -755,6 +781,8 @@ class InitTests(unittest.TestCase):
                 'name': 'foobar',
                 'namespace': 'current'},
             'spec': {
+                'init_containers': [
+                    {'name': 'init'}],
                 'containers': [
                     {'name': 'first'},
                     {'name': 'second'}]}}
@@ -801,6 +829,23 @@ class InitTests(unittest.TestCase):
             self.assertEqual(kubectl.logs("foobar", "current"), '/usr\n/etc\n/bin\n')
             mock_client.CoreV1Api().read_namespaced_pod_log.assert_called_once_with(
                 'foobar', 'current', container='first', follow=False, _preload_content=False)
+
+    def test_logs_default_container(self):
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current',
+                'annotations': {'kubectl.kubernetes.io/default-container': 'second'}},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.read_namespaced_pod_log.return_value = '/usr\n/etc\n/bin\n'
+        with mock.patch("kubernetes.client", mock_client):
+            self.assertEqual(kubectl.logs("foobar", "current"), '/usr\n/etc\n/bin\n')
+            mock_client.CoreV1Api().read_namespaced_pod_log.assert_called_once_with(
+                'foobar', 'current', container='second', follow=False, _preload_content=False)
 
     def test_logs_not_ready_1(self):
         mock_client = mock.Mock()

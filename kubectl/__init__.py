@@ -439,12 +439,18 @@ def logs(name: str, namespace: str = None, container: str = None,
     api = kubernetes.client.CoreV1Api()
     resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
     if container is None:
-        container = resp['spec']['containers'][0]['name']
+        if 'annotations' in resp['metadata'] and \
+                'kubectl.kubernetes.io/default-container' in \
+                resp['metadata']['annotations']:
+            container = resp['metadata']['annotations'][
+                'kubectl.kubernetes.io/default-container']
+        else:
+            container = resp['spec']['containers'][0]['name']
     else:
         containers = []
         if resp['spec']['containers']:
             containers += [ctn['name'] for ctn in resp['spec']['containers']]
-        if resp['spec']['init_containers']:
+        if resp['spec'].get('init_containers'):
             containers += [ctn['name'] for ctn in resp['spec']['init_containers']]
         if container not in containers:
             raise exceptions.KubectlInvalidContainerException(name, namespace, container)
@@ -507,9 +513,20 @@ def exec(name: str, command: list, namespace: str = None,
     api = kubernetes.client.CoreV1Api()
     resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
     if container is None:
-        container = resp['spec']['containers'][0]['name']
+        if 'annotations' in resp['metadata'] and \
+                'kubectl.kubernetes.io/default-container' in \
+                resp['metadata']['annotations']:
+            container = resp['metadata']['annotations'][
+                'kubectl.kubernetes.io/default-container']
+        else:
+            container = resp['spec']['containers'][0]['name']
     else:
-        if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
+        containers = []
+        if resp['spec']['containers']:
+            containers += [ctn['name'] for ctn in resp['spec']['containers']]
+        if resp['spec'].get('init_containers'):
+            containers += [ctn['name'] for ctn in resp['spec']['init_containers']]
+        if container not in containers:
             raise exceptions.KubectlInvalidContainerException(name, namespace, container)
     resp = kubernetes.stream.stream(
         api.connect_get_namespaced_pod_exec,
