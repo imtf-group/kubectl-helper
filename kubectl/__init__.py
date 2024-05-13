@@ -432,7 +432,9 @@ def logs(name: str, namespace: str = None, container: str = None,
     :param namespace: namespace
     :param container: container
     :param follow: does the generator waits for additional logs
-    :returns: HTTPReponse generator"""
+    :returns: HTTPReponse generator
+    :raises exceptions.KubectlInvalidContainerException: if the container doesnt exist
+    :raises exceptions.KubectlBaseException: if the pod is not ready"""
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
     resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
@@ -536,7 +538,9 @@ def cp(source: str, destination: str,
     :param namespace: namespace
     :param container: container
     :returns: success (or not) boolean
-    :raises exceptions.KubectlInvalidContainerException: if the container doesnt exist"""
+    :raises exceptions.KubectlInvalidContainerException: if the container doesnt exist
+    :raises exceptions.KubectlBaseException: if both source and destination are remote
+    :raises exceptions.KubectlBaseException: if both source and destination are local"""
     if len(source.split(':')) > 1 and len(destination.split(':')) > 1:
         raise exceptions.KubectlBaseException(
             'error: one of src or dest must be a local file specification')

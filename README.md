@@ -290,6 +290,11 @@ Get a pod logs (similar to 'kubectl logs')
 - `container`: container
 - `follow`: does the generator waits for additional logs
 
+**Raises**:
+
+- `exceptions.KubectlInvalidContainerException`: if the container doesnt exist
+- `exceptions.KubectlBaseException`: if the pod is not ready
+
 **Returns**:
 
 HTTPReponse generator
@@ -392,6 +397,8 @@ Copy a file/directory from/to a pod (similar to 'kubectl cp')
 **Raises**:
 
 - `exceptions.KubectlInvalidContainerException`: if the container doesnt exist
+- `exceptions.KubectlBaseException`: if both source and destination are remote
+- `exceptions.KubectlBaseException`: if both source and destination are local
 
 **Returns**:
 
