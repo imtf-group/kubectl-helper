@@ -68,14 +68,20 @@ def _find_container(name: str, namespace: str, container: str = None):
     return container
 
 
-def load_kubeconfig(host: str = None, api_key: str = None, certificate: str = None):
+def connect(host: str = None, api_key: str = None, certificate: str = None):
     """Create configuration so python-kubernetes can access resources.
     With no arguments, Try to get config from ~/.kube/config or KUBECONFIG
     If set, certificate parameter is not Base64-encoded"""
     # pylint: disable=global-statement
     global _temp_files
     if not host:
-        kubernetes.config.load_kube_config()
+        try:
+            kubernetes.config.load_kube_config()
+        except kubernetes.config.config_exception.ConfigException as e:
+            try:
+                kubernetes.config.load_incluster_config()
+            except kubernetes.config.config_exception.ConfigException:
+                raise exceptions.KubectlConfigException(str(e)) from e
         return
     configuration = kubernetes.client.Configuration()
     configuration.host = host
@@ -358,7 +364,8 @@ def patch(obj: str, name: str = None, namespace: str = None,
 
 
 def run(name: str, image: str, namespace: str = None, annotations: dict = None,
-        labels: dict = None, env: dict = None, restart: str = 'Always') -> dict:
+        labels: dict = None, env: dict = None, restart: str = 'Always',
+        command: list = None) -> dict:
     """Create a pod (similar to 'kubectl run')
     :param obj: resource type
     :param image: resource name
@@ -367,11 +374,13 @@ def run(name: str, image: str, namespace: str = None, annotations: dict = None,
     :param labels: labels
     :param env: environment variables
     :param restart: pod Restart policy
+    :param command: command list to execute
     :returns: data similar to 'kubectl create po' in JSON format"""
     annotations = annotations or {}
     env = env or {}
     namespace = namespace or 'default'
     labels = labels or {'run': name}
+    command = command or []
     body = {
         "apiVersion": "v1",
         "kind": "Pod",
@@ -385,6 +394,8 @@ def run(name: str, image: str, namespace: str = None, annotations: dict = None,
             "containers": [{"image": image, "name": name}]}}
     envs = [{"name": k, "value": v} for k, v in env.items()]
     body['spec']['containers'][0]['env'] = envs
+    if command:
+        body['spec']['containers'][0]['command'] = command
     return _api_call('CoreV1Api', 'create', 'namespaced_pod',
                      namespace=namespace, body=body)
 
@@ -413,24 +424,33 @@ def annotate(obj, name: str, namespace: str = None,
     return patch(obj, name, namespace, body, dry_run=dry_run)
 
 
-def logs(name: str, namespace: str = None, container: str = None) -> str:
+def logs(name: str, namespace: str = None, container: str = None,
+         follow: bool = False) -> urllib3.response.HTTPResponse:
     """Get a pod logs (similar to 'kubectl logs')
     :param name: pod name
     :param namespace: namespace
     :param container: container
-    :returns: data similar to 'kubectl logs' as a string"""
+    :param follow: does the generator waits for additional logs
+    :returns: HTTPReponse generator"""
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
     resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
     if container is None:
         container = resp['spec']['containers'][0]['name']
     else:
-        if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
+        containers = []
+        if resp['spec']['containers']:
+            containers += [ctn['name'] for ctn in resp['spec']['containers']]
+        if resp['spec']['init_containers']:
+            containers += [ctn['name'] for ctn in resp['spec']['init_containers']]
+        if container not in containers:
             raise exceptions.KubectlInvalidContainerException(name, namespace, container)
     return api.read_namespaced_pod_log(
         name,
         namespace,
-        container=container)
+        container=container,
+        follow=follow,
+        _preload_content=False)
 
 
 def apply(body: dict, dry_run: bool = False) -> dict:
@@ -466,7 +486,7 @@ def exec(name: str, command: list, namespace: str = None, container: str = None)
     :param command: command to execute
     :param namespace: namespace
     :param container: container
-    :returns: command execution return value
+    :returns: list of command execution exit code and return value
     :raises exceptions.KubectlInvalidContainerException: if the container doesnt exist"""
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
@@ -483,8 +503,11 @@ def exec(name: str, command: list, namespace: str = None, container: str = None)
         container=container,
         command=command,
         stderr=True, stdin=False,
-        stdout=True, tty=False)
-    return resp
+        stdout=True, tty=False,
+        _preload_content=False)
+    resp.run_forever()
+    err = resp.read_channel(kubernetes.stream.ws_client.ERROR_CHANNEL)
+    return json.loads(err)["status"] == "Success", ''.join(resp.read_all())
 
 
 def cp(source: str, destination: str,
@@ -521,7 +544,7 @@ def cp(source: str, destination: str,
         with tempfile.TemporaryFile() as tar_buffer:
             with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
                 for source_file in glob.glob(source):
-                    tar.add(source_file)
+                    tar.add(source_file, os.path.basename(source_file))
 
             tar_buffer.seek(0)
             commands = []
@@ -535,7 +558,11 @@ def cp(source: str, destination: str,
                     print(f"STDERR: {resp.read_stderr()}")
                 if commands:
                     c = commands.pop(0)
-                    resp.write_stdin(c.decode())
+                    try:
+                        c = c.decode()
+                    except UnicodeDecodeError:
+                        pass
+                    resp.write_stdin(c)
                 else:
                     break
             resp.close()
@@ -557,13 +584,19 @@ def cp(source: str, destination: str,
                 resp.update(timeout=1)
                 if resp.peek_stdout():
                     out = resp.read_stdout()
-                    tar_buffer.write(out.encode())
+                    try:
+                        out = out.encode()
+                    except UnicodeEncodeError:
+                        pass
+                    tar_buffer.write(out)
                 if resp.peek_stderr():
                     print(f"STDERR: {resp.read_stderr()}")
             resp.close()
             tar_buffer.flush()
             tar_buffer.seek(0)
             with tarfile.open(fileobj=tar_buffer, mode='r:') as tar:
+                if not tar.getmembers():
+                    return False
                 for member in tar.getmembers():
                     if os.path.isdir(destination):
                         local_file = os.path.join(
@@ -574,24 +607,4 @@ def cp(source: str, destination: str,
     return True
 
 
-# def wait(obj: str, jsonpath: str, value: str, name: str = None,
-#          namespace: str = None, labels: str = None, timeout: int = 60):
-#     """
-#     Examples:
-#        kubectl.wait('pods', '{@[*].metadata.name}', 'nginx')
-#     """
-#     seconds = 0
-#     if jsonpath[0] == '{' and jsonpath[-1] == '}':
-#         jsonpath = jsonpath[1:-1]
-#     if jsonpath[0] == '.':
-#         jsonpath = jsonpath[1:]
-#     query = jp.parse(jsonpath)
-#     while True:
-#         obj_value = get(obj, name, namespace, labels)
-#         if any(match.value == value for match in query.find(obj_value)):
-#             break
-#         time.sleep(2)
-#         seconds += 2
-#         if seconds > timeout:
-#             raise TimeoutError('timed out waiting for the condition')
-#     return True
+load_kubeconfig = connect

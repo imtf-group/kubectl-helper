@@ -25,18 +25,17 @@ def snake_to_camel(name: str) -> str
 
 Converts Snake-style string to Camel-style string
 
-<a id="kubectl.load_kubeconfig"></a>
+<a id="kubectl.connect"></a>
 
-#### load\_kubeconfig
+#### connect
 
 ```python
-def load_kubeconfig(host: str = None,
-                    api_key: str = None,
-                    certificate: str = None)
+def connect(host: str = None, api_key: str = None, certificate: str = None)
 ```
 
 Create configuration so python-kubernetes can access resources.
 With no arguments, Try to get config from ~/.kube/config or KUBECONFIG
+If set, certificate parameter is not Base64-encoded
 
 <a id="kubectl.scale"></a>
 
@@ -46,7 +45,8 @@ With no arguments, Try to get config from ~/.kube/config or KUBECONFIG
 def scale(obj: str,
           name: str,
           namespace: str = None,
-          replicas: int = 1) -> dict
+          replicas: int = 1,
+          dry_run: bool = False) -> dict
 ```
 
 Scale Apps resources
@@ -101,7 +101,10 @@ data similar to 'kubectl get' in JSON format
 #### delete
 
 ```python
-def delete(obj: str, name: str, namespace: str = None) -> dict
+def delete(obj: str,
+           name: str,
+           namespace: str = None,
+           dry_run: bool = False) -> dict
 ```
 
 Delete a resource (similar to 'kubectl delete')
@@ -111,6 +114,7 @@ Delete a resource (similar to 'kubectl delete')
 - `obj`: resource type
 - `name`: resource name
 - `namespace`: namespace
+- `dry_run`: dry-run
 
 **Raises**:
 
@@ -128,7 +132,8 @@ data similar to 'kubectl delete' in JSON format
 def create(obj: str,
            name: str = None,
            namespace: str = None,
-           body: dict = None) -> dict
+           body: dict = None,
+           dry_run: bool = False) -> dict
 ```
 
 Create a resource (similar to 'kubectl create')
@@ -139,6 +144,7 @@ Create a resource (similar to 'kubectl create')
 - `name`: resource name
 - `namespace`: namespace
 - `body`: kubernetes manifest body (overrides name and namespace)
+- `dry_run`: dry-run
 
 **Raises**:
 
@@ -156,7 +162,8 @@ data similar to 'kubectl create' in JSON format
 def patch(obj: str,
           name: str = None,
           namespace: str = None,
-          body: dict = None) -> dict
+          body: dict = None,
+          dry_run: bool = False) -> dict
 ```
 
 Patch a resource (similar to 'kubectl patch')
@@ -167,6 +174,7 @@ Patch a resource (similar to 'kubectl patch')
 - `name`: resource name
 - `namespace`: namespace
 - `body`: kubernetes manifest body (overrides name and namespace)
+- `dry_run`: dry-run
 
 **Raises**:
 
@@ -215,6 +223,7 @@ def annotate(obj,
              name: str,
              namespace: str = None,
              overwrite: bool = False,
+             dry_run: bool = False,
              **annotations) -> dict
 ```
 
@@ -257,7 +266,7 @@ data similar to 'kubectl logs' as a string
 #### apply
 
 ```python
-def apply(body: dict) -> dict
+def apply(body: dict, dry_run: bool = False) -> dict
 ```
 
 Create/Update a resource (similar to 'kubectl apply')
@@ -265,6 +274,7 @@ Create/Update a resource (similar to 'kubectl apply')
 **Arguments**:
 
 - `body`: kubenetes manifest data in JSON format
+- `dry_run`: dry-run
 
 **Returns**:
 

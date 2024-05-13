@@ -19,14 +19,21 @@ class InitTests(unittest.TestCase):
     def test_config_with_kubeconfig(self):
         try:
             self.assertIsNone(kubernetes.client.Configuration._default)
-            kubectl.load_kubeconfig()
+            kubectl.connect()
             self.assertIsNotNone(kubernetes.client.Configuration._default)
-        except kubernetes.config.config_exception.ConfigException:
+        except kubectl.exceptions.KubectlConfigException:
             pass
+
+    def test_config_with_exception(self):
+        m = mock.Mock()
+        m.side_effect = kubernetes.config.config_exception.ConfigException("ERROR")
+        with mock.patch("kubernetes.config.load_kube_config", m):
+            with self.assertRaises(kubectl.exceptions.KubectlConfigException):
+                kubectl.connect()
 
     def test_config_with_certificate(self):
         self.assertIsNone(kubernetes.client.Configuration._default)
-        kubectl.load_kubeconfig("http://localhost", "APIKEY", b"CERTIFICATE")
+        kubectl.connect("http://localhost", "APIKEY", b"CERTIFICATE")
         self.assertEqual(kubernetes.client.Configuration._default.host, "http://localhost")
         self.assertEqual(
             kubernetes.client.Configuration._default.api_key,
@@ -37,7 +44,7 @@ class InitTests(unittest.TestCase):
 
     def test_config_without_certificate(self):
         self.assertIsNone(kubernetes.client.Configuration._default)
-        kubectl.load_kubeconfig("http://localhost", "APIKEY")
+        kubectl.connect("http://localhost", "APIKEY")
         self.assertEqual(kubernetes.client.Configuration._default.host, "http://localhost")
         self.assertEqual(
             kubernetes.client.Configuration._default.api_key,
@@ -52,6 +59,26 @@ class InitTests(unittest.TestCase):
         with mock.patch("kubernetes.client", m):
             with self.assertRaises(kubectl.exceptions.KubectlResourceTypeException):
                 kubectl._get_resource("imtf")
+
+    def test_api_call_exception_1(self):
+        m = mock.Mock()
+        exc = kubernetes.client.rest.ApiException()
+        exc.body = '{"message": "json"}'
+        m.side_effect = exc
+        with mock.patch("kubernetes.client.CoreV1Api.list_namespace", m):
+            with self.assertRaises(kubectl.exceptions.KubectlBaseException) as ex:
+                kubectl._api_call('CoreV1Api', 'list', 'namespace')
+            self.assertEqual(ex.exception.args[0], 'json')
+
+    def test_api_call_exception_2(self):
+        m = mock.Mock()
+        exc = kubernetes.client.rest.ApiException()
+        exc.body = 'no_json'
+        m.side_effect = exc
+        with mock.patch("kubernetes.client.CoreV1Api.list_namespace", m):
+            with self.assertRaises(kubectl.exceptions.KubectlBaseException) as ex:
+                kubectl._api_call('CoreV1Api', 'list', 'namespace')
+            self.assertEqual(ex.exception.args[0], 'no_json')
 
     def test_list_namespace(self):
         m = mock.Mock()
@@ -664,8 +691,11 @@ class InitTests(unittest.TestCase):
                 namespace='default')
 
     def test_exec(self):
+        mock_ws = mock.Mock()
+        mock_ws.read_channel.return_value = '{"status": "Success"}'
+        mock_ws.read_all.return_value = ['/usr\n', '/etc\n', '/bin\n']
         mock_stream = mock.Mock()
-        mock_stream.stream.return_value = '/usr\n/etc\n/bin\n'
+        mock_stream.stream.return_value = mock_ws
         mock_client = mock.Mock()
         mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
             'metadata': {
@@ -678,8 +708,8 @@ class InitTests(unittest.TestCase):
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
         with mock.patch("kubernetes.client", mock_client):
             with mock.patch("kubernetes.stream", mock_stream):
-                self.assertEqual(kubectl.exec("foobar", "ls -d /", "current"), '/usr\n/etc\n/bin\n')
-                mock_stream.stream.assert_called_once_with('mock_function', 'foobar', 'current', container='first', command='ls -d /', stderr=True, stdin=False, stdout=True, tty=False)
+                self.assertEqual(kubectl.exec("foobar", "ls -d /", "current"), (True, '/usr\n/etc\n/bin\n'))
+                mock_stream.stream.assert_called_once_with('mock_function', 'foobar', 'current', container='first', command='ls -d /', stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False)
 
     def test_exec_wrong_container(self):
         mock_client = mock.Mock()
@@ -699,7 +729,8 @@ class InitTests(unittest.TestCase):
     def test_run(self):
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
-            kubectl.run("name", "image", annotations={'owner': 'imtf'}, env={'POD_NAME': 'podname'})
+            kubectl.run("name", "image", annotations={'owner': 'imtf'},
+                        env={'POD_NAME': 'podname'}, command=["sleep", "infinity"])
             m.CoreV1Api().create_namespaced_pod.assert_called_once_with(
                 namespace='default',
                 body={
@@ -715,6 +746,7 @@ class InitTests(unittest.TestCase):
                         'containers': [{
                             'image': 'image',
                             'name': 'name',
+                            'command': ["sleep", "infinity"],
                             'env': [{'name': 'POD_NAME', 'value': 'podname'}]}]}})
 
     def test_logs(self):
@@ -730,7 +762,8 @@ class InitTests(unittest.TestCase):
         mock_client.CoreV1Api.return_value.read_namespaced_pod_log.return_value = '/usr\n/etc\n/bin\n'
         with mock.patch("kubernetes.client", mock_client):
             self.assertEqual(kubectl.logs("foobar", "current"), '/usr\n/etc\n/bin\n')
-            mock_client.CoreV1Api().read_namespaced_pod_log.assert_called_once_with('foobar', 'current', container='first')
+            mock_client.CoreV1Api().read_namespaced_pod_log.assert_called_once_with(
+                'foobar', 'current', container='first', follow=False, _preload_content=False)
 
     def test_logs_wrong_container(self):
         mock_client = mock.Mock()
@@ -741,7 +774,8 @@ class InitTests(unittest.TestCase):
             'spec': {
                 'containers': [
                     {'name': 'first'},
-                    {'name': 'second'}]}}
+                    {'name': 'second'}],
+                'init_containers': []}}
         with mock.patch("kubernetes.client", mock_client):
             with self.assertRaises(kubectl.exceptions.KubectlInvalidContainerException):
                 kubectl.logs("foobar", "current", "another")

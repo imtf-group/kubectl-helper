@@ -7,6 +7,10 @@ class KubectlBaseException(ValueError):
         super().__init__(message)
 
 
+class KubectlConfigException(KubectlBaseException):
+    """Raised when the config cannot be loaded"""
+
+
 class KubectlMethodException(KubectlBaseException):
     """Raised when a resource is not allowed"""
     def __init__(self):

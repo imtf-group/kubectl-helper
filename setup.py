@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
     name="kubectl",
-    version="0.0.2",
+    version="0.0.3",
     author="Jean-Baptiste Langlois",
     author_email="jean-baptiste.langlois@imtf.com",
     description="Helper which mimics Kubectl behaviour",
@@ -18,6 +18,6 @@ setup(
     python_requires='>=3.6',
     install_requires=[
         'requests==2.31.0',
-        'kubernetes==25.3.0'
+        'kubernetes==29.0.0'
     ]
 )
