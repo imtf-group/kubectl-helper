@@ -440,6 +440,7 @@ def logs(name: str, namespace: str = None, container: str = None,
     resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
     if container is None:
         if 'annotations' in resp['metadata'] and \
+                resp['metadata']['annotations'] and \
                 'kubectl.kubernetes.io/default-container' in \
                 resp['metadata']['annotations']:
             container = resp['metadata']['annotations'][
@@ -514,6 +515,7 @@ def exec(name: str, command: list, namespace: str = None,
     resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
     if container is None:
         if 'annotations' in resp['metadata'] and \
+                resp['metadata']['annotations'] and \
                 'kubectl.kubernetes.io/default-container' in \
                 resp['metadata']['annotations']:
             container = resp['metadata']['annotations'][
