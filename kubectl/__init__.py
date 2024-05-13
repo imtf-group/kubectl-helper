@@ -364,7 +364,8 @@ def patch(obj: str, name: str = None, namespace: str = None,
 
 
 def run(name: str, image: str, namespace: str = None, annotations: dict = None,
-        labels: dict = None, env: dict = None, restart: str = 'Always') -> dict:
+        labels: dict = None, env: dict = None, restart: str = 'Always',
+        command: list = None) -> dict:
     """Create a pod (similar to 'kubectl run')
     :param obj: resource type
     :param image: resource name
@@ -373,11 +374,13 @@ def run(name: str, image: str, namespace: str = None, annotations: dict = None,
     :param labels: labels
     :param env: environment variables
     :param restart: pod Restart policy
+    :param command: command list to execute
     :returns: data similar to 'kubectl create po' in JSON format"""
     annotations = annotations or {}
     env = env or {}
     namespace = namespace or 'default'
     labels = labels or {'run': name}
+    command = command or []
     body = {
         "apiVersion": "v1",
         "kind": "Pod",
@@ -391,6 +394,8 @@ def run(name: str, image: str, namespace: str = None, annotations: dict = None,
             "containers": [{"image": image, "name": name}]}}
     envs = [{"name": k, "value": v} for k, v in env.items()]
     body['spec']['containers'][0]['env'] = envs
+    if command:
+        body['spec']['containers'][0]['command'] = command
     return _api_call('CoreV1Api', 'create', 'namespaced_pod',
                      namespace=namespace, body=body)
 
@@ -419,12 +424,14 @@ def annotate(obj, name: str, namespace: str = None,
     return patch(obj, name, namespace, body, dry_run=dry_run)
 
 
-def logs(name: str, namespace: str = None, container: str = None) -> str:
+def logs(name: str, namespace: str = None, container: str = None,
+         follow: bool = False) -> urllib3.response.HTTPResponse:
     """Get a pod logs (similar to 'kubectl logs')
     :param name: pod name
     :param namespace: namespace
     :param container: container
-    :returns: data similar to 'kubectl logs' as a string"""
+    :param follow: does the generator waits for additional logs
+    :returns: HTTPReponse generator"""
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
     resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
@@ -438,10 +445,20 @@ def logs(name: str, namespace: str = None, container: str = None) -> str:
             containers += [ctn['name'] for ctn in resp['spec']['init_containers']]
         if container not in containers:
             raise exceptions.KubectlInvalidContainerException(name, namespace, container)
-    return api.read_namespaced_pod_log(
-        name,
-        namespace,
-        container=container)
+    try:
+        return api.read_namespaced_pod_log(
+            name,
+            namespace,
+            container=container,
+            follow=follow,
+            _preload_content=False)
+    except kubernetes.client.exceptions.ApiException as err:
+        body = err.body
+        try:
+            body = json.loads(body)['message']
+        except (ValueError, AttributeError):
+            pass
+        raise exceptions.KubectlBaseException(body) from err        
 
 
 def apply(body: dict, dry_run: bool = False) -> dict:

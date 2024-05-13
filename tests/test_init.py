@@ -60,6 +60,26 @@ class InitTests(unittest.TestCase):
             with self.assertRaises(kubectl.exceptions.KubectlResourceTypeException):
                 kubectl._get_resource("imtf")
 
+    def test_api_call_exception_1(self):
+        m = mock.Mock()
+        exc = kubernetes.client.rest.ApiException()
+        exc.body = '{"message": "json"}'
+        m.side_effect = exc
+        with mock.patch("kubernetes.client.CoreV1Api.list_namespace", m):
+            with self.assertRaises(kubectl.exceptions.KubectlBaseException) as ex:
+                kubectl._api_call('CoreV1Api', 'list', 'namespace')
+            self.assertEqual(ex.exception.args[0], 'json')
+
+    def test_api_call_exception_2(self):
+        m = mock.Mock()
+        exc = kubernetes.client.rest.ApiException()
+        exc.body = 'no_json'
+        m.side_effect = exc
+        with mock.patch("kubernetes.client.CoreV1Api.list_namespace", m):
+            with self.assertRaises(kubectl.exceptions.KubectlBaseException) as ex:
+                kubectl._api_call('CoreV1Api', 'list', 'namespace')
+            self.assertEqual(ex.exception.args[0], 'no_json')
+
     def test_list_namespace(self):
         m = mock.Mock()
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {
@@ -709,7 +729,8 @@ class InitTests(unittest.TestCase):
     def test_run(self):
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
-            kubectl.run("name", "image", annotations={'owner': 'imtf'}, env={'POD_NAME': 'podname'})
+            kubectl.run("name", "image", annotations={'owner': 'imtf'},
+                        env={'POD_NAME': 'podname'}, command=["sleep", "infinity"])
             m.CoreV1Api().create_namespaced_pod.assert_called_once_with(
                 namespace='default',
                 body={
@@ -725,6 +746,7 @@ class InitTests(unittest.TestCase):
                         'containers': [{
                             'image': 'image',
                             'name': 'name',
+                            'command': ["sleep", "infinity"],
                             'env': [{'name': 'POD_NAME', 'value': 'podname'}]}]}})
 
     def test_logs(self):
@@ -740,7 +762,8 @@ class InitTests(unittest.TestCase):
         mock_client.CoreV1Api.return_value.read_namespaced_pod_log.return_value = '/usr\n/etc\n/bin\n'
         with mock.patch("kubernetes.client", mock_client):
             self.assertEqual(kubectl.logs("foobar", "current"), '/usr\n/etc\n/bin\n')
-            mock_client.CoreV1Api().read_namespaced_pod_log.assert_called_once_with('foobar', 'current', container='first')
+            mock_client.CoreV1Api().read_namespaced_pod_log.assert_called_once_with(
+                'foobar', 'current', container='first', follow=False, _preload_content=False)
 
     def test_logs_wrong_container(self):
         mock_client = mock.Mock()

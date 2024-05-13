@@ -1,3 +1,30 @@
+# Table of Contents
+
+* [kubectl](#kubectl)
+  * [camel\_to\_snake](#kubectl.camel_to_snake)
+  * [snake\_to\_camel](#kubectl.snake_to_camel)
+  * [connect](#kubectl.connect)
+  * [scale](#kubectl.scale)
+  * [get](#kubectl.get)
+  * [delete](#kubectl.delete)
+  * [create](#kubectl.create)
+  * [patch](#kubectl.patch)
+  * [run](#kubectl.run)
+  * [annotate](#kubectl.annotate)
+  * [logs](#kubectl.logs)
+  * [apply](#kubectl.apply)
+  * [top](#kubectl.top)
+  * [exec](#kubectl.exec)
+  * [cp](#kubectl.cp)
+* [kubectl.exceptions](#kubectl.exceptions)
+  * [KubectlBaseException](#kubectl.exceptions.KubectlBaseException)
+  * [KubectlConfigException](#kubectl.exceptions.KubectlConfigException)
+  * [KubectlMethodException](#kubectl.exceptions.KubectlMethodException)
+  * [KubectlResourceNameException](#kubectl.exceptions.KubectlResourceNameException)
+  * [KubectlResourceTypeException](#kubectl.exceptions.KubectlResourceTypeException)
+  * [KubectlResourceNotFoundException](#kubectl.exceptions.KubectlResourceNotFoundException)
+  * [KubectlInvalidContainerException](#kubectl.exceptions.KubectlInvalidContainerException)
+
 <a id="kubectl"></a>
 
 # kubectl
@@ -195,7 +222,8 @@ def run(name: str,
         annotations: dict = None,
         labels: dict = None,
         env: dict = None,
-        restart: str = 'Always') -> dict
+        restart: str = 'Always',
+        command: list = None) -> dict
 ```
 
 Create a pod (similar to 'kubectl run')
@@ -209,6 +237,7 @@ Create a pod (similar to 'kubectl run')
 - `labels`: labels
 - `env`: environment variables
 - `restart`: pod Restart policy
+- `command`: command list to execute
 
 **Returns**:
 
@@ -246,7 +275,10 @@ data similar to 'kubectl annotate' in JSON format
 #### logs
 
 ```python
-def logs(name: str, namespace: str = None, container: str = None) -> str
+def logs(name: str,
+         namespace: str = None,
+         container: str = None,
+         follow: bool = False) -> urllib3.response.HTTPResponse
 ```
 
 Get a pod logs (similar to 'kubectl logs')
@@ -256,10 +288,11 @@ Get a pod logs (similar to 'kubectl logs')
 - `name`: pod name
 - `namespace`: namespace
 - `container`: container
+- `follow`: does the generator waits for additional logs
 
 **Returns**:
 
-data similar to 'kubectl logs' as a string
+HTTPReponse generator
 
 <a id="kubectl.apply"></a>
 
@@ -330,7 +363,7 @@ Execute a command in a pod (similar to 'kubectl exec')
 
 **Returns**:
 
-command execution return value
+list of command execution exit code and return value
 
 <a id="kubectl.cp"></a>
 
@@ -359,4 +392,80 @@ Copy a file/directory from/to a pod (similar to 'kubectl cp')
 **Returns**:
 
 success (or not) boolean
+
+<a id="kubectl.exceptions"></a>
+
+# kubectl.exceptions
+
+Kubectl helper exceptions
+
+<a id="kubectl.exceptions.KubectlBaseException"></a>
+
+## KubectlBaseException Objects
+
+```python
+class KubectlBaseException(ValueError)
+```
+
+Base kubectl exceptions. Catch it all
+
+<a id="kubectl.exceptions.KubectlConfigException"></a>
+
+## KubectlConfigException Objects
+
+```python
+class KubectlConfigException(KubectlBaseException)
+```
+
+Raised when the config cannot be loaded
+
+<a id="kubectl.exceptions.KubectlMethodException"></a>
+
+## KubectlMethodException Objects
+
+```python
+class KubectlMethodException(KubectlBaseException)
+```
+
+Raised when a resource is not allowed
+
+<a id="kubectl.exceptions.KubectlResourceNameException"></a>
+
+## KubectlResourceNameException Objects
+
+```python
+class KubectlResourceNameException(KubectlBaseException)
+```
+
+Raised when the resource name is absent
+
+<a id="kubectl.exceptions.KubectlResourceTypeException"></a>
+
+## KubectlResourceTypeException Objects
+
+```python
+class KubectlResourceTypeException(KubectlBaseException)
+```
+
+Raised when the resource type is absent
+
+<a id="kubectl.exceptions.KubectlResourceNotFoundException"></a>
+
+## KubectlResourceNotFoundException Objects
+
+```python
+class KubectlResourceNotFoundException(KubectlBaseException)
+```
+
+Raised when the resource cannot be found
+
+<a id="kubectl.exceptions.KubectlInvalidContainerException"></a>
+
+## KubectlInvalidContainerException Objects
+
+```python
+class KubectlInvalidContainerException(KubectlBaseException)
+```
+
+Raised when the container name is incorrect
 
