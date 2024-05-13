@@ -345,7 +345,9 @@ data similar to 'kubectl top' in JSON format
 def exec(name: str,
          command: list,
          namespace: str = None,
-         container: str = None) -> str
+         container: str = None,
+         stdout: bool = False,
+         stderr: bool = False) -> (bool, str)
 ```
 
 Execute a command in a pod (similar to 'kubectl exec')
@@ -356,6 +358,8 @@ Execute a command in a pod (similar to 'kubectl exec')
 - `command`: command to execute
 - `namespace`: namespace
 - `container`: container
+- `stdout`: stream stdout during execution
+- `stderr`: stream stderr during execution
 
 **Raises**:
 

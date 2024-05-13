@@ -4,6 +4,7 @@ That bunch of functions mimic kubectl behaviour and options
 """
 
 import os.path
+import sys
 import atexit
 import tarfile
 import glob
@@ -458,7 +459,7 @@ def logs(name: str, namespace: str = None, container: str = None,
             body = json.loads(body)['message']
         except (ValueError, AttributeError):
             pass
-        raise exceptions.KubectlBaseException(body) from err        
+        raise exceptions.KubectlBaseException(body) from err
 
 
 def apply(body: dict, dry_run: bool = False) -> dict:
@@ -488,12 +489,16 @@ def top(obj: str, namespace: str = None, all_namespaces: bool = False) -> dict:
 
 
 # pylint: disable=redefined-builtin
-def exec(name: str, command: list, namespace: str = None, container: str = None) -> str:
+def exec(name: str, command: list, namespace: str = None,
+         container: str = None, stdout: bool = False,
+         stderr: bool = False) -> (bool, str):
     """Execute a command in a pod (similar to 'kubectl exec')
     :param name: pod name
     :param command: command to execute
     :param namespace: namespace
     :param container: container
+    :param stdout: stream stdout during execution
+    :param stderr: stream stderr during execution
     :returns: list of command execution exit code and return value
     :raises exceptions.KubectlInvalidContainerException: if the container doesnt exist"""
     namespace = namespace or 'default'
@@ -513,7 +518,12 @@ def exec(name: str, command: list, namespace: str = None, container: str = None)
         stderr=True, stdin=False,
         stdout=True, tty=False,
         _preload_content=False)
-    resp.run_forever()
+    while resp.is_open():
+        resp.update(timeout=1)
+        if resp.peek_stdout() and stdout is True:
+            sys.stdout.write(resp.read_stdout())
+        if resp.peek_stderr() and stderr is True:
+            sys.stderr.write(resp.read_stderr())
     err = resp.read_channel(kubernetes.stream.ws_client.ERROR_CHANNEL)
     return json.loads(err)["status"] == "Success", ''.join(resp.read_all())
 

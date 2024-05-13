@@ -690,10 +690,45 @@ class InitTests(unittest.TestCase):
                 body={'kind': 'Pod', 'apiVersion': 'v1', 'metadata': {'name': 'nginx', 'namespace': 'default', 'annotations': {'owner': 'imtf', 'user': 'bar'}}, 'spec': {}},
                 namespace='default')
 
+    def test_exec_stdout_stderr(self):
+        mock_ws = mock.Mock()
+        mock_ws.read_channel.return_value = '{"status": "Failed"}'
+        mock_ws.peek_stdout.return_value = True
+        mock_ws.peek_stderr.return_value = True
+        mock_ws.read_stdout.return_value = ['/usr\n', '/etc\n', '/bin\n']
+        mock_ws.read_stderr.return_value = ['not found\n']
+        mock_ws.is_open.side_effect = [True, False]
+        mock_ws.read_all.return_value = ['/usr\n', '/etc\n', '/bin\n', 'not found\n']
+        mock_stderr = mock.Mock()
+        mock_stdout = mock.Mock()
+        mock_stream = mock.Mock()
+        mock_stream.stream.return_value = mock_ws
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
+        with mock.patch("kubernetes.client", mock_client):
+            with mock.patch("kubernetes.stream", mock_stream):
+                with mock.patch("sys.stderr", mock_stderr):
+                    with mock.patch("sys.stdout", mock_stdout):
+                        self.assertEqual(kubectl.exec("foobar", "ls -d /", "current", stderr=True, stdout=True), (False, '/usr\n/etc\n/bin\nnot found\n'))
+                        mock_stderr.write.assert_called_once_with(['not found\n'])
+                        mock_stdout.write.assert_called_once_with(['/usr\n', '/etc\n', '/bin\n'])
+                        mock_stream.stream.assert_called_once_with(
+                            'mock_function', 'foobar', 'current', container='first', command='ls -d /',
+                            stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False)
+
     def test_exec(self):
         mock_ws = mock.Mock()
         mock_ws.read_channel.return_value = '{"status": "Success"}'
         mock_ws.read_all.return_value = ['/usr\n', '/etc\n', '/bin\n']
+        mock_ws.is_open.return_value = False
         mock_stream = mock.Mock()
         mock_stream.stream.return_value = mock_ws
         mock_client = mock.Mock()
@@ -709,7 +744,9 @@ class InitTests(unittest.TestCase):
         with mock.patch("kubernetes.client", mock_client):
             with mock.patch("kubernetes.stream", mock_stream):
                 self.assertEqual(kubectl.exec("foobar", "ls -d /", "current"), (True, '/usr\n/etc\n/bin\n'))
-                mock_stream.stream.assert_called_once_with('mock_function', 'foobar', 'current', container='first', command='ls -d /', stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False)
+                mock_stream.stream.assert_called_once_with(
+                    'mock_function', 'foobar', 'current', container='first', command='ls -d /',
+                    stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False)
 
     def test_exec_wrong_container(self):
         mock_client = mock.Mock()
@@ -765,6 +802,42 @@ class InitTests(unittest.TestCase):
             mock_client.CoreV1Api().read_namespaced_pod_log.assert_called_once_with(
                 'foobar', 'current', container='first', follow=False, _preload_content=False)
 
+    def test_logs_not_ready_1(self):
+        mock_client = mock.Mock()
+        mock_client.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        exc = kubernetes.client.rest.ApiException()
+        exc.body = '{"message": "json"}'
+        mock_client.return_value.read_namespaced_pod_log.side_effect = exc
+        with mock.patch("kubernetes.client.CoreV1Api", mock_client):
+            with self.assertRaises(kubectl.exceptions.KubectlBaseException) as ex:
+                kubectl.logs("foobar", "current")
+            self.assertEqual(ex.exception.args[0], 'json')
+
+    def test_logs_not_ready_2(self):
+        mock_client = mock.Mock()
+        mock_client.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        exc = kubernetes.client.rest.ApiException()
+        exc.body = 'no_json'
+        mock_client.return_value.read_namespaced_pod_log.side_effect = exc
+        with mock.patch("kubernetes.client.CoreV1Api", mock_client):
+            with self.assertRaises(kubectl.exceptions.KubectlBaseException) as ex:
+                kubectl.logs("foobar", "current")
+            self.assertEqual(ex.exception.args[0], 'no_json')
+
     def test_logs_wrong_container(self):
         mock_client = mock.Mock()
         mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
@@ -772,14 +845,14 @@ class InitTests(unittest.TestCase):
                 'name': 'foobar',
                 'namespace': 'current'},
             'spec': {
+                'init_containers': [
+                    {'name': 'init'}],
                 'containers': [
                     {'name': 'first'},
-                    {'name': 'second'}],
-                'init_containers': []}}
+                    {'name': 'second'}]}}
         with mock.patch("kubernetes.client", mock_client):
             with self.assertRaises(kubectl.exceptions.KubectlInvalidContainerException):
                 kubectl.logs("foobar", "current", "another")
-
 
     def test_top(self):
         m = mock.Mock()
