@@ -7,7 +7,6 @@ import os.path
 import sys
 import atexit
 import tarfile
-import glob
 import re
 import select
 import json
@@ -50,30 +49,31 @@ def snake_to_camel(name: str) -> str:
 def _read_bytes_from_wsclient(
         ws_client: kubernetes.stream.ws_client.WSClient,
         timeout: int = 0) -> (bytes, bytes, bool):
+    if not ws_client.sock.connected:
+        # pylint: disable=protected-access
+        ws_client._connected = False
+    if not ws_client.is_open():
+        return None, None, True
     stdout_bytes = None
     stderr_bytes = None
-
-    if ws_client.is_open():
-        if not ws_client.sock.connected:
+    r, _, _ = select.select(
+        (ws_client.sock.sock, ), (), (), timeout)
+    if r:
+        op_code, frame = ws_client.sock.recv_data_frame(True)
+        if op_code == 0x8:
+            # pylint: disable=protected-access
             ws_client._connected = False
-        else:
-            r, _, _ = select.select(
-                (ws_client.sock.sock, ), (), (), timeout)
-            if r:
-                op_code, frame = ws_client.sock.recv_data_frame(True)
-                if op_code == 0x8:
-                    ws_client._connected = False
-                elif op_code == 0x1 or op_code == 0x2:
-                    data = frame.data
-                    if len(data) > 1:
-                        channel = data[0]
-                        data = data[1:]
-                        if data:
-                            if channel == kubernetes.stream.ws_client.STDOUT_CHANNEL:
-                                stdout_bytes = data
-                            elif channel == kubernetes.stream.ws_client.STDERR_CHANNEL:
-                                stderr_bytes = data
-    return stdout_bytes, stderr_bytes, not ws_client._connected
+        elif op_code in (0x1, 0x2):
+            data = frame.data
+            if len(data) > 1:
+                channel = data[0]
+                data = data[1:]
+                if data:
+                    if channel == kubernetes.stream.ws_client.STDOUT_CHANNEL:
+                        stdout_bytes = data
+                    elif channel == kubernetes.stream.ws_client.STDERR_CHANNEL:
+                        stderr_bytes = data
+    return stdout_bytes, stderr_bytes, not ws_client.is_open()
 
 
 def _prepare_body(body):
@@ -114,7 +114,14 @@ def connect(host: str = None, api_key: str = None,
             certificate: str = None, context: str = None) -> str:
     """Create configuration so python-kubernetes can access resources.
     With no arguments, Try to get config from ~/.kube/config or KUBECONFIG
-    If set, certificate parameter is not Base64-encoded"""
+    If set, certificate parameter is not Base64-encoded.
+    If unset, the SSL check is disabled
+    :param host: Kubernetes server URL
+    :param api_key: Kubernetes server API token
+    :param certificate: Kubernetes server SSL certificate
+    :param context: context to use if local config file is used (default: current one)
+    :returns: K8s server URL where the client is connected to
+    :raises exceptions.KubectlConfigException: if the connection fails"""
     # pylint: disable=global-statement
     global _temp_files
     if not host:
@@ -146,6 +153,7 @@ def connect(host: str = None, api_key: str = None,
         else:
             configuration.verify_ssl = False
         kubernetes.client.Configuration.set_default(configuration)
+    # pylint: disable=protected-access
     return kubernetes.client.Configuration._default.host
 
 
@@ -560,6 +568,7 @@ def exec(name: str, command: list, namespace: str = None,
     return json.loads(err)["status"] == "Success", ''.join(resp.read_all())
 
 
+# pylint: disable=too-many-branches
 def cp(source: str, destination: str,
        namespace: str = None, container: str = None) -> bool:
     """Copy a file/directory from/to a pod (similar to 'kubectl cp')

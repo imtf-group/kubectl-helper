@@ -954,11 +954,12 @@ class InitTests(unittest.TestCase):
                     {'name': 'first'},
                     {'name': 'second'}]}}
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
-        with mock.patch('kubectl.exec', mock.MagicMock(return_value=(False, ''))):
-            with mock.patch("kubernetes.client", mock_client):
-                with mock.patch("kubernetes.stream", mock_stream):
-                    kubectl.cp("LOCALFILE", "nginx:REMOTEFILE")
-                    mock_flow.write_stdin.assert_called_once()
+        with tempfile.NamedTemporaryFile() as local_file:
+            with mock.patch('kubectl.exec', mock.MagicMock(return_value=(False, ''))):
+                with mock.patch("kubernetes.client", mock_client):
+                    with mock.patch("kubernetes.stream", mock_stream):
+                        kubectl.cp(local_file.name, "nginx:REMOTEFILE")
+                        mock_flow.write_stdin.assert_called_once()
 
     def test_cp_push_directory(self):
         mock_flow = mock.Mock()
@@ -1020,12 +1021,13 @@ class InitTests(unittest.TestCase):
                     {'name': 'first'},
                     {'name': 'second'}]}}
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
-        with mock.patch('kubectl.exec', mock.MagicMock(return_value=(False, ''))):
-            with mock.patch("kubernetes.client", mock_client):
-                with mock.patch("kubernetes.stream", mock_stream):
-                    with mock.patch("builtins.print", mock_print):
-                        kubectl.cp("LOCALFILE", "nginx:REMOTEFILE")
-                    mock_print.assert_called_once_with('STDERR: Mocked!')
+        with tempfile.NamedTemporaryFile() as local_file:
+            with mock.patch('kubectl.exec', mock.MagicMock(return_value=(False, ''))):
+                with mock.patch("kubernetes.client", mock_client):
+                    with mock.patch("kubernetes.stream", mock_stream):
+                        with mock.patch("builtins.print", mock_print):
+                            kubectl.cp(local_file.name, "nginx:REMOTEFILE")
+                        mock_print.assert_called_once_with('STDERR: Mocked!')
 
     def test_cp_push_stderr_2(self):
         mock_print = mock.Mock()
@@ -1046,12 +1048,13 @@ class InitTests(unittest.TestCase):
                     {'name': 'first'},
                     {'name': 'second'}]}}
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
-        with mock.patch('kubectl.exec', mock.MagicMock(return_value=(False, ''))):
-            with mock.patch("kubernetes.client", mock_client):
-                with mock.patch("kubernetes.stream", mock_stream):
-                    with mock.patch("builtins.print", mock_print):
-                        kubectl.cp("LOCALFILE", "nginx:REMOTEFILE")
-                    mock_print.assert_called_once_with('STDOUT: Mocked!')
+        with tempfile.NamedTemporaryFile() as local_file:
+            with mock.patch('kubectl.exec', mock.MagicMock(return_value=(False, ''))):
+                with mock.patch("kubernetes.client", mock_client):
+                    with mock.patch("kubernetes.stream", mock_stream):
+                        with mock.patch("builtins.print", mock_print):
+                            kubectl.cp(local_file.name, "nginx:REMOTEFILE")
+                        mock_print.assert_called_once_with('STDOUT: Mocked!')
 
     def test_cp_pull(self):
         mock_tar = mock.Mock()

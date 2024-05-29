@@ -57,12 +57,32 @@ Converts Snake-style string to Camel-style string
 #### connect
 
 ```python
-def connect(host: str = None, api_key: str = None, certificate: str = None)
+def connect(host: str = None,
+            api_key: str = None,
+            certificate: str = None,
+            context: str = None) -> str
 ```
 
 Create configuration so python-kubernetes can access resources.
+
 With no arguments, Try to get config from ~/.kube/config or KUBECONFIG
-If set, certificate parameter is not Base64-encoded
+If set, certificate parameter is not Base64-encoded.
+If unset, the SSL check is disabled
+
+**Arguments**:
+
+- `host`: Kubernetes server URL
+- `api_key`: Kubernetes server API token
+- `certificate`: Kubernetes server SSL certificate
+- `context`: context to use if local config file is used (default: current one)
+
+**Raises**:
+
+- `exceptions.KubectlConfigException`: if the connection fails
+
+**Returns**:
+
+K8s server URL where the client is connected to
 
 <a id="kubectl.scale"></a>
 
