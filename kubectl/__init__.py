@@ -9,6 +9,7 @@ import atexit
 import tarfile
 import glob
 import re
+import select
 import json
 import tempfile
 import urllib3
@@ -46,6 +47,35 @@ def snake_to_camel(name: str) -> str:
     return name[0] + ''.join(ele.title() for ele in name[1:])
 
 
+def _read_bytes_from_wsclient(
+        ws_client: kubernetes.stream.ws_client.WSClient,
+        timeout: int = 0) -> (bytes, bytes, bool):
+    stdout_bytes = None
+    stderr_bytes = None
+
+    if ws_client.is_open():
+        if not ws_client.sock.connected:
+            ws_client._connected = False
+        else:
+            r, _, _ = select.select(
+                (ws_client.sock.sock, ), (), (), timeout)
+            if r:
+                op_code, frame = ws_client.sock.recv_data_frame(True)
+                if op_code == 0x8:
+                    ws_client._connected = False
+                elif op_code == 0x1 or op_code == 0x2:
+                    data = frame.data
+                    if len(data) > 1:
+                        channel = data[0]
+                        data = data[1:]
+                        if data:
+                            if channel == kubernetes.stream.ws_client.STDOUT_CHANNEL:
+                                stdout_bytes = data
+                            elif channel == kubernetes.stream.ws_client.STDERR_CHANNEL:
+                                stderr_bytes = data
+    return stdout_bytes, stderr_bytes, not ws_client._connected
+
+
 def _prepare_body(body):
     """Ensure fields are in Camel Case"""
     if isinstance(body, dict):
@@ -60,16 +90,28 @@ def _prepare_body(body):
 
 def _find_container(name: str, namespace: str, container: str = None):
     api = kubernetes.client.CoreV1Api()
+    containers = []
     resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
+    if resp['spec']['containers']:
+        containers += [ctn['name'] for ctn in resp['spec']['containers']]
+    if resp['spec'].get('init_containers'):
+        containers += [ctn['name'] for ctn in resp['spec']['init_containers']]
     if container is None:
-        container = resp['spec']['containers'][0]['name']
-    else:
-        if container not in [ctn['name'] for ctn in resp['spec']['containers']]:
-            raise exceptions.KubectlInvalidContainerException(name, namespace, container)
+        if 'annotations' in resp['metadata'] and \
+                resp['metadata']['annotations'] and \
+                'kubectl.kubernetes.io/default-container' in \
+                resp['metadata']['annotations']:
+            container = resp['metadata']['annotations'][
+                'kubectl.kubernetes.io/default-container']
+        else:
+            container = containers[0]
+    if container not in containers:
+        raise exceptions.KubectlInvalidContainerException(name, namespace, container)
     return container
 
 
-def connect(host: str = None, api_key: str = None, certificate: str = None):
+def connect(host: str = None, api_key: str = None,
+            certificate: str = None, context: str = None) -> str:
     """Create configuration so python-kubernetes can access resources.
     With no arguments, Try to get config from ~/.kube/config or KUBECONFIG
     If set, certificate parameter is not Base64-encoded"""
@@ -77,31 +119,34 @@ def connect(host: str = None, api_key: str = None, certificate: str = None):
     global _temp_files
     if not host:
         try:
-            kubernetes.config.load_kube_config()
+            kubernetes.config.load_kube_config(context=context)
         except kubernetes.config.config_exception.ConfigException as e:
+            if context is not None:
+                raise exceptions.KubectlConfigException(str(e)) from e
             try:
                 kubernetes.config.load_incluster_config()
             except kubernetes.config.config_exception.ConfigException:
                 raise exceptions.KubectlConfigException(str(e)) from e
-        return
-    configuration = kubernetes.client.Configuration()
-    configuration.host = host
-    if api_key:
-        configuration.api_key['authorization'] = f'Bearer {api_key}'
-    if certificate:
-        # pylint: disable=consider-using-with
-        cafile = tempfile.NamedTemporaryFile(delete=False)
-        if isinstance(certificate, str):
-            certificate = certificate.encode()
-        cafile.write(certificate)
-        cafile.flush()
-        configuration.ssl_ca_cert = cafile.name
-        if len(_temp_files) == 0:
-            atexit.register(_cleanup_temp_files)
-        _temp_files += [cafile.name]
     else:
-        configuration.verify_ssl = False
-    kubernetes.client.Configuration.set_default(configuration)
+        configuration = kubernetes.client.Configuration()
+        configuration.host = host
+        if api_key:
+            configuration.api_key['authorization'] = f'Bearer {api_key}'
+        if certificate:
+            # pylint: disable=consider-using-with
+            cafile = tempfile.NamedTemporaryFile(delete=False)
+            if isinstance(certificate, str):
+                certificate = certificate.encode()
+            cafile.write(certificate)
+            cafile.flush()
+            configuration.ssl_ca_cert = cafile.name
+            if len(_temp_files) == 0:
+                atexit.register(_cleanup_temp_files)
+            _temp_files += [cafile.name]
+        else:
+            configuration.verify_ssl = False
+        kubernetes.client.Configuration.set_default(configuration)
+    return kubernetes.client.Configuration._default.host
 
 
 def _get_resource(obj: str) -> dict:
@@ -437,24 +482,7 @@ def logs(name: str, namespace: str = None, container: str = None,
     :raises exceptions.KubectlBaseException: if the pod is not ready"""
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
-    resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
-    if container is None:
-        if 'annotations' in resp['metadata'] and \
-                resp['metadata']['annotations'] and \
-                'kubectl.kubernetes.io/default-container' in \
-                resp['metadata']['annotations']:
-            container = resp['metadata']['annotations'][
-                'kubectl.kubernetes.io/default-container']
-        else:
-            container = resp['spec']['containers'][0]['name']
-    else:
-        containers = []
-        if resp['spec']['containers']:
-            containers += [ctn['name'] for ctn in resp['spec']['containers']]
-        if resp['spec'].get('init_containers'):
-            containers += [ctn['name'] for ctn in resp['spec']['init_containers']]
-        if container not in containers:
-            raise exceptions.KubectlInvalidContainerException(name, namespace, container)
+    container = _find_container(name, namespace, container)
     try:
         return api.read_namespaced_pod_log(
             name,
@@ -512,24 +540,7 @@ def exec(name: str, command: list, namespace: str = None,
     :raises exceptions.KubectlInvalidContainerException: if the container doesnt exist"""
     namespace = namespace or 'default'
     api = kubernetes.client.CoreV1Api()
-    resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
-    if container is None:
-        if 'annotations' in resp['metadata'] and \
-                resp['metadata']['annotations'] and \
-                'kubectl.kubernetes.io/default-container' in \
-                resp['metadata']['annotations']:
-            container = resp['metadata']['annotations'][
-                'kubectl.kubernetes.io/default-container']
-        else:
-            container = resp['spec']['containers'][0]['name']
-    else:
-        containers = []
-        if resp['spec']['containers']:
-            containers += [ctn['name'] for ctn in resp['spec']['containers']]
-        if resp['spec'].get('init_containers'):
-            containers += [ctn['name'] for ctn in resp['spec']['init_containers']]
-        if container not in containers:
-            raise exceptions.KubectlInvalidContainerException(name, namespace, container)
+    container = _find_container(name, namespace, container)
     resp = kubernetes.stream.stream(
         api.connect_get_namespaced_pod_exec,
         name,
@@ -570,8 +581,16 @@ def cp(source: str, destination: str,
     api = kubernetes.client.CoreV1Api()
     if len(destination.split(':')) > 1:
         pod_name, remote_path = destination.split(':', 1)
+        if remote_path.endswith('/'):
+            remote_path = remote_path[:-1]
+        if source.endswith('/'):
+            source = source[:-1]
         container = _find_container(pod_name, namespace, container)
-        command = ['tar', 'xf', '-', '-C', remote_path]
+        if exec(pod_name, ["test", "-d", remote_path], namespace, container)[0] is True:
+            _dest_path = os.path.join(remote_path, os.path.basename(source))
+        else:
+            _dest_path = remote_path
+        command = ['tar', 'xf', '-', '-C', "/"]
         resp = kubernetes.stream.stream(
             api.connect_get_namespaced_pod_exec,
             pod_name,
@@ -582,10 +601,19 @@ def cp(source: str, destination: str,
             stdout=True, tty=False,
             _preload_content=False)
 
+        _files = []
+        if os.path.isdir(source):
+            for _dir, _, _file_list in os.walk(source):
+                _files += [
+                    (os.path.join(_dir, _file), os.path.join(
+                        _dest_path, _dir.replace(source, '.', 1), _file))
+                    for _file in _file_list]
+        else:
+            _files = [(source, _dest_path)]
         with tempfile.TemporaryFile() as tar_buffer:
             with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
-                for source_file in glob.glob(source):
-                    tar.add(source_file, os.path.basename(source_file))
+                for _file in _files:
+                    tar.add(_file[0], _file[1])
 
             tar_buffer.seek(0)
             commands = []
@@ -611,39 +639,47 @@ def cp(source: str, destination: str,
         pod_name, remote_path = source.split(':', 1)
         container = _find_container(pod_name, namespace, container)
         command = ['tar', 'cf', '-', remote_path]
+        if exec(pod_name, ["test", "-d", remote_path], namespace, container)[0] is True:
+            if not os.path.isdir(destination):
+                os.mkdir(destination)
         resp = kubernetes.stream.stream(
             api.connect_get_namespaced_pod_exec,
             pod_name,
             namespace,
             container=container,
             command=command,
-            stderr=True, stdin=True,
+            stderr=True, stdin=False,
             stdout=True, tty=False,
             _preload_content=False)
         with tempfile.TemporaryFile() as tar_buffer:
-            while resp.is_open():
-                resp.update(timeout=1)
-                if resp.peek_stdout():
-                    out = resp.read_stdout()
-                    try:
-                        out = out.encode()
-                    except UnicodeEncodeError:
-                        pass
+            while True:
+                # workaround to handle big binary files
+                out, err, closed = _read_bytes_from_wsclient(resp)
+                if out:
                     tar_buffer.write(out)
-                if resp.peek_stderr():
-                    print(f"STDERR: {resp.read_stderr()}")
+                if err:
+                    print(f"STDERR: {err.decode()}")
+                if closed:
+                    break
             resp.close()
             tar_buffer.flush()
             tar_buffer.seek(0)
+            if remote_path.startswith('/'):
+                remote_path = remote_path[1:]
             with tarfile.open(fileobj=tar_buffer, mode='r:') as tar:
                 if not tar.getmembers():
                     return False
                 for member in tar.getmembers():
                     if os.path.isdir(destination):
                         local_file = os.path.join(
-                            destination, os.path.basename(member.name))
+                            destination, member.name.replace(remote_path, '.', 1))
+                        if member.isdir():
+                            if not os.path.isdir(local_file):
+                                os.mkdir(local_file)
+                            continue
                     else:
                         local_file = destination
+
                     tar.makefile(member, local_file)
     return True
 

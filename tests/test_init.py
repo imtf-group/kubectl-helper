@@ -3,6 +3,7 @@ import sys
 from unittest import mock
 import unittest
 import tarfile
+import tempfile
 import kubernetes.client
 import kubernetes.config
 
@@ -31,9 +32,16 @@ class InitTests(unittest.TestCase):
             with self.assertRaises(kubectl.exceptions.KubectlConfigException):
                 kubectl.connect()
 
+    def test_config_with_exception_and_context(self):
+        m = mock.Mock()
+        m.side_effect = kubernetes.config.config_exception.ConfigException("ERROR")
+        with mock.patch("kubernetes.config.load_kube_config", m):
+            with self.assertRaises(kubectl.exceptions.KubectlConfigException):
+                kubectl.connect(context="toto")
+
     def test_config_with_certificate(self):
         self.assertIsNone(kubernetes.client.Configuration._default)
-        kubectl.connect("http://localhost", "APIKEY", b"CERTIFICATE")
+        kubectl.connect("http://localhost", "APIKEY", "CERTIFICATE")
         self.assertEqual(kubernetes.client.Configuration._default.host, "http://localhost")
         self.assertEqual(
             kubernetes.client.Configuration._default.api_key,
@@ -929,7 +937,6 @@ class InitTests(unittest.TestCase):
         with self.assertRaises(kubectl.exceptions.KubectlBaseException):
             kubectl.cp("nginx:LOCALFILE", "nginx:REMOTEFILE")
 
-
     def test_cp_push(self):
         mock_flow = mock.Mock()
         mock_flow.is_open.return_value = True
@@ -947,13 +954,52 @@ class InitTests(unittest.TestCase):
                     {'name': 'first'},
                     {'name': 'second'}]}}
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
-        with mock.patch("kubernetes.client", mock_client):
-            with mock.patch("kubernetes.stream", mock_stream):
-                with open('mocked_file', 'w') as fd:
-                    fd.write("toto")
-                    with mock.patch("glob.glob", mock.MagicMock(return_value=['mocked_file'])):
-                        kubectl.cp("LOCALFILE", "nginx:REMOTEFILE")
-                        mock_flow.write_stdin.assert_called_once()
+        with mock.patch('kubectl.exec', mock.MagicMock(return_value=(False, ''))):
+            with mock.patch("kubernetes.client", mock_client):
+                with mock.patch("kubernetes.stream", mock_stream):
+                    kubectl.cp("LOCALFILE", "nginx:REMOTEFILE")
+                    mock_flow.write_stdin.assert_called_once()
+
+    def test_cp_push_directory(self):
+        mock_flow = mock.Mock()
+        mock_flow.is_open.return_value = True
+        mock_flow.peek_stdout.return_value = False
+        mock_flow.peek_stderr.return_value = False
+        mock_stream = mock.Mock()
+        mock_stream.stream.return_value = mock_flow
+        mock_client = mock.Mock()
+        mock_tar = mock.Mock()
+        _tmpdir = None
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(f"{tmpdir}/test", "wb") as fd:
+                fd.write(b"toto")
+            with tarfile.open("toto.tar", "w") as fd:
+                fd.add(f"{tmpdir}/test")
+            os.unlink(f"{tmpdir}/test")
+            _tmpdir = tmpdir
+        with open("toto.tar", "rb") as fd:
+            mock_flow.read_stdout.return_value = fd.read().decode()
+        os.unlink("toto.tar")
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
+        with mock.patch('kubectl.exec', mock.MagicMock(return_value=(True, ''))):
+            with mock.patch('os.walk', mock.MagicMock(return_value=[(_tmpdir, [], ['test'])])):
+                with mock.patch('os.path.isdir', mock.MagicMock(return_value=True)):
+                    with mock.patch('tarfile.TarFile.add', mock_tar):
+                        with mock.patch("kubernetes.client", mock_client):
+                            with mock.patch("kubernetes.stream", mock_stream):
+                                kubectl.cp(_tmpdir + "/", f"nginx:{_tmpdir}/")
+                                mock_flow.write_stdin.assert_called_once()
+                                mock_tar.assert_called_once_with(
+                                    _tmpdir + "/test",
+                                    os.path.join(_tmpdir, os.path.basename(_tmpdir), "./test"))
 
     def test_cp_push_stderr(self):
         mock_print = mock.Mock()
@@ -974,11 +1020,12 @@ class InitTests(unittest.TestCase):
                     {'name': 'first'},
                     {'name': 'second'}]}}
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
-        with mock.patch("kubernetes.client", mock_client):
-            with mock.patch("kubernetes.stream", mock_stream):
-                with mock.patch("builtins.print", mock_print):
-                    kubectl.cp("LOCALFILE", "nginx:REMOTEFILE")
-                mock_print.assert_called_once_with('STDERR: Mocked!')
+        with mock.patch('kubectl.exec', mock.MagicMock(return_value=(False, ''))):
+            with mock.patch("kubernetes.client", mock_client):
+                with mock.patch("kubernetes.stream", mock_stream):
+                    with mock.patch("builtins.print", mock_print):
+                        kubectl.cp("LOCALFILE", "nginx:REMOTEFILE")
+                    mock_print.assert_called_once_with('STDERR: Mocked!')
 
     def test_cp_push_stderr_2(self):
         mock_print = mock.Mock()
@@ -999,27 +1046,25 @@ class InitTests(unittest.TestCase):
                     {'name': 'first'},
                     {'name': 'second'}]}}
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
-        with mock.patch("kubernetes.client", mock_client):
-            with mock.patch("kubernetes.stream", mock_stream):
-                with mock.patch("builtins.print", mock_print):
-                    kubectl.cp("LOCALFILE", "nginx:REMOTEFILE")
-                mock_print.assert_called_once_with('STDOUT: Mocked!')
+        with mock.patch('kubectl.exec', mock.MagicMock(return_value=(False, ''))):
+            with mock.patch("kubernetes.client", mock_client):
+                with mock.patch("kubernetes.stream", mock_stream):
+                    with mock.patch("builtins.print", mock_print):
+                        kubectl.cp("LOCALFILE", "nginx:REMOTEFILE")
+                    mock_print.assert_called_once_with('STDOUT: Mocked!')
 
     def test_cp_pull(self):
-        mock_flow = mock.Mock()
-        mock_flow.is_open.side_effect = [True, False]
-        mock_flow.peek_stdout.return_value = True
+        mock_tar = mock.Mock()
+        mock_ftn = mock.Mock()
         with open("test", "wb") as fd:
             fd.write(b"toto")
         with tarfile.open("toto.tar", "w") as fd:
             fd.add("test")
-        os.unlink("test")
         with open("toto.tar", "rb") as fd:
-            mock_flow.read_stdout.return_value = fd.read().decode()
+            mock_ftn.return_value = (fd.read(), None, True)
         os.unlink("toto.tar")
-        mock_flow.peek_stderr.return_value = False
+        os.unlink("test")
         mock_stream = mock.Mock()
-        mock_stream.stream.return_value = mock_flow
         mock_client = mock.Mock()
         mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
             'metadata': {
@@ -1030,21 +1075,66 @@ class InitTests(unittest.TestCase):
                     {'name': 'first'},
                     {'name': 'second'}]}}
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
-        with mock.patch("kubernetes.client", mock_client):
-            with mock.patch("kubernetes.stream", mock_stream):
-                kubectl.cp("nginx:LOCALFILE", "REMOTEFILE")
-            mock_flow.read_stdout.assert_called_once()
-            self.assertFalse(mock_flow.read_stderr.call_count)
+        with mock.patch('kubectl.exec', mock.MagicMock(return_value=(True, ''))):
+            with mock.patch("kubernetes.client", mock_client):
+                with mock.patch("kubernetes.stream", mock_stream):
+                    with mock.patch("kubectl._read_bytes_from_wsclient", mock_ftn):
+                        with mock.patch('tarfile.TarFile.makefile', mock_tar):
+                            kubectl.cp("nginx:/test", "tmp")
+                        self.assertEqual(mock_tar.mock_calls[0].args[0].name, "test")
+                        self.assertEqual(mock_tar.mock_calls[0].args[1], "tmp/.")
+
+    def test_cp_pull_create_directory(self):
+        mock_mkdir = mock.Mock()
+        mock_tar = mock.Mock()
+        mock_ftn = mock.Mock()
+        _tmpdir = None
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(f"{tmpdir}/test", "wb") as fd:
+                fd.write(b"toto")
+            with tarfile.open("toto.tar", "w") as fd:
+                fd.add(f"{tmpdir}/test")
+            os.unlink(f"{tmpdir}/test")
+            _tmpdir = tmpdir
+        with open("toto.tar", "rb") as fd:
+            mock_ftn.return_value = (fd.read(), None, True)
+        os.unlink("toto.tar")
+        mock_stream = mock.Mock()
+        mock_client = mock.Mock()
+        mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
+            'metadata': {
+                'name': 'foobar',
+                'namespace': 'current'},
+            'spec': {
+                'containers': [
+                    {'name': 'first'},
+                    {'name': 'second'}]}}
+        mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
+        with mock.patch('kubectl.exec', mock.MagicMock(return_value=(True, ''))):
+            with mock.patch('os.mkdir', mock_mkdir):
+                with mock.patch('os.path.isdir', mock.MagicMock(return_value=False)):
+                    with mock.patch("kubernetes.client", mock_client):
+                        with mock.patch("kubernetes.stream", mock_stream):
+                            with mock.patch("kubectl._read_bytes_from_wsclient", mock_ftn):
+                                with mock.patch('tarfile.TarFile.makefile', mock_tar):
+                                    kubectl.cp("nginx:" + _tmpdir, _tmpdir)
+                                mock_mkdir.assert_called_once_with(_tmpdir)
+                                self.assertEqual(mock_tar.mock_calls[0].args[0].name, f"{_tmpdir}/test"[1:])
+                                self.assertEqual(mock_tar.mock_calls[0].args[1], _tmpdir)
 
     def test_cp_pull_stderr(self):
+        mock_tar = mock.Mock()
+        mock_ftn = mock.Mock()
         mock_print = mock.Mock()
-        mock_flow = mock.Mock()
-        mock_flow.is_open.side_effect = [True, False]
-        mock_flow.peek_stdout.return_value = False
-        mock_flow.peek_stderr.return_value = True
-        mock_flow.read_stderr.return_value = "Mocked!"
+        with open("test", "wb") as fd:
+            fd.write(b"toto")
+        with tarfile.open("toto.tar", "w") as fd:
+            fd.add("test")
+        with open("toto.tar", "rb") as fd:
+            mock_ftn.return_value = (fd.read(), b"Mocked!", True)
+        os.unlink("toto.tar")
+        os.unlink("test")
         mock_stream = mock.Mock()
-        mock_stream.stream.return_value = mock_flow
         mock_client = mock.Mock()
         mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
             'metadata': {
@@ -1055,13 +1145,17 @@ class InitTests(unittest.TestCase):
                     {'name': 'first'},
                     {'name': 'second'}]}}
         mock_client.CoreV1Api.return_value.connect_get_namespaced_pod_exec = 'mock_function'
-        with mock.patch("kubernetes.client", mock_client):
-            with mock.patch("kubernetes.stream", mock_stream):
-                    with mock.patch("builtins.print", mock_print):
-                        with self.assertRaises(tarfile.ReadError):
-                            kubectl.cp("nginx:LOCALFILE", "REMOTEFILE")
-                    mock_print.assert_called_once_with("STDERR: Mocked!")
-                    
+        with mock.patch('kubectl.exec', mock.MagicMock(return_value=(True, ''))):
+            with mock.patch("kubernetes.client", mock_client):
+                with mock.patch("kubernetes.stream", mock_stream):
+                    with mock.patch("kubectl._read_bytes_from_wsclient", mock_ftn):
+                        with mock.patch('tarfile.TarFile.makefile', mock_tar):
+                            with mock.patch("builtins.print", mock_print):
+                                kubectl.cp("nginx:/test", "tmp")
+                        self.assertEqual(mock_tar.mock_calls[0].args[0].name, "test")
+                        self.assertEqual(mock_tar.mock_calls[0].args[1], "tmp/.")
+                        mock_print.assert_called_once_with("STDERR: Mocked!")
+
     def test_cp_wrong_container(self):
         mock_client = mock.Mock()
         mock_client.CoreV1Api.return_value.read_namespaced_pod.return_value.to_dict.return_value = {
