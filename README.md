@@ -4,6 +4,7 @@
   * [camel\_to\_snake](#kubectl.camel_to_snake)
   * [snake\_to\_camel](#kubectl.snake_to_camel)
   * [connect](#kubectl.connect)
+  * [api\_resources](#kubectl.api_resources)
   * [scale](#kubectl.scale)
   * [get](#kubectl.get)
   * [delete](#kubectl.delete)
@@ -83,6 +84,17 @@ If unset, the SSL check is disabled
 **Returns**:
 
 K8s server URL where the client is connected to
+
+<a id="kubectl.api_resources"></a>
+
+#### api\_resources
+
+```python
+def api_resources(obj: str = None) -> dict
+```
+
+From a resource name or alias, extract the API name
+and version to use from api-resources
 
 <a id="kubectl.scale"></a>
 
@@ -283,8 +295,13 @@ Annotate a resource (similar to 'kubectl annotate')
 - `obj`: resource type
 - `image`: resource name
 - `namespace`: namespace
-- `annotations`: annotations
+- `annotations`: annotations in key=value format (key=None for deletion)
 - `overwrite`: Allow to overwrite existing annotations
+
+**Raises**:
+
+- `exceptions.KubectlBaseException`: if an annotation exists and overwrite=False
+- `exceptions.KubectlBaseException`: no annotation are submitted
 
 **Returns**:
 

@@ -157,41 +157,38 @@ def connect(host: str = None, api_key: str = None,
     return kubernetes.client.Configuration._default.host
 
 
-def _get_resource(obj: str) -> dict:
+def api_resources(obj: str = None) -> dict:
     """From a resource name or alias, extract the API name
     and version to use from api-resources"""
     # pylint: disable=global-statement
     global _resource_cache
-    for _cache in _resource_cache:
-        if _cache['name'] == obj or _cache['kind'].lower() == obj.lower() or \
-                (_cache['short_names'] and obj in _cache['short_names']):
-            return _cache
-    api = kubernetes.client.CoreV1Api()
-    for res in api.get_api_resources().to_dict()['resources']:
-        if res['name'] == obj or res['kind'].lower() == obj.lower() or \
-                (res['short_names'] and obj in res['short_names']):
+    if not _resource_cache:
+        api = kubernetes.client.CoreV1Api()
+        for res in api.get_api_resources().to_dict()['resources']:
             res['api'] = {
                 'name': 'CoreV1Api',
                 'version': 'v1',
                 'group_version': 'v1'}
             _resource_cache += [res]
-            return res
-    global_api = kubernetes.client.ApisApi()
-    api = kubernetes.client.CustomObjectsApi()
-    for api_group in global_api.get_api_versions().to_dict()['groups']:
-        for res in api.get_api_resources(
-                api_group['name'],
-                api_group['preferred_version']['version']).to_dict()['resources']:
-            if res['name'] == obj or res['kind'].lower() == obj.lower() or \
-                    (res['short_names'] and obj in res['short_names']):
+        global_api = kubernetes.client.ApisApi()
+        api = kubernetes.client.CustomObjectsApi()
+        for api_group in global_api.get_api_versions().to_dict()['groups']:
+            for res in api.get_api_resources(
+                    api_group['name'],
+                    api_group['preferred_version']['version']).to_dict()['resources']:
                 res['api'] = {
                     'name': 'CustomObjectsApi',
                     'group': api_group['name'],
                     'version': api_group['preferred_version']['version'],
                     'group_version': api_group['preferred_version']['group_version']}
                 _resource_cache += [res]
-                return res
-    raise exceptions.KubectlResourceTypeException(obj)
+    if obj is not None:
+        for _cache in _resource_cache:
+            if _cache['name'] == obj or _cache['kind'].lower() == obj.lower() or \
+                    (_cache['short_names'] and obj in _cache['short_names']):
+                return _cache
+        raise exceptions.KubectlResourceTypeException(obj)
+    return _resource_cache
 
 
 def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
@@ -239,7 +236,7 @@ def scale(obj: str, name: str, namespace: str = None,
     :returns: patch_namespaced_object_scale JSON
     :raises exceptions.KubectlResourceNotFoundException: if not a Apps resource"""
     namespace = namespace or 'default'
-    resource = _get_resource(obj)
+    resource = api_resources(obj)
     if resource['kind'] not in ('Deployment', 'StatefulSet', 'ReplicaSet'):
         raise exceptions.KubectlResourceNotFoundException
     if 'patch' not in resource['verbs']:
@@ -265,7 +262,7 @@ def get(obj: str, name: str = None, namespace: str = None,
     :param all_namespaces: scope where the resource must be gotten from
     :returns: data similar to 'kubectl get' in JSON format
     :raises exceptions.KubectlMethodException: if the resource cannot be 'gotten'"""
-    resource = _get_resource(obj)
+    resource = api_resources(obj)
     verb = 'get' if name else 'list'
     if verb not in resource['verbs']:
         raise exceptions.KubectlMethodException
@@ -300,7 +297,7 @@ def delete(obj: str, name: str, namespace: str = None, dry_run: bool = False) ->
     :returns: data similar to 'kubectl delete' in JSON format
     :raises exceptions.KubectlMethodException: if the resource cannot be 'deleted'"""
     namespace = namespace or 'default'
-    resource = _get_resource(obj)
+    resource = api_resources(obj)
     if 'delete' not in resource['verbs']:
         raise exceptions.KubectlMethodException
     opts = {"name": name}
@@ -341,7 +338,7 @@ def create(obj: str, name: str = None, namespace: str = None,
         body['metadata']['name'] = name
     if 'name' not in body['metadata']:
         raise exceptions.KubectlResourceNameException
-    resource = _get_resource(obj)
+    resource = api_resources(obj)
     if 'create' not in resource['verbs']:
         raise exceptions.KubectlMethodException
     if resource['namespaced'] is True and 'namespace' not in body['metadata']:
@@ -388,7 +385,7 @@ def patch(obj: str, name: str = None, namespace: str = None,
         body['metadata']['name'] = name
     if 'name' not in body['metadata']:
         raise exceptions.KubectlResourceNameException
-    resource = _get_resource(obj)
+    resource = api_resources(obj)
     if 'patch' not in resource['verbs']:
         raise exceptions.KubectlMethodException
     if resource['namespaced'] is True and 'namespace' not in body['metadata']:
@@ -461,21 +458,27 @@ def annotate(obj, name: str, namespace: str = None,
     :param obj: resource type
     :param image: resource name
     :param namespace: namespace
-    :param annotations: annotations
+    :param annotations: annotations in key=value format (key=None for deletion)
     :param overwrite: Allow to overwrite existing annotations
-    :returns: data similar to 'kubectl annotate' in JSON format"""
+    :returns: data similar to 'kubectl annotate' in JSON format
+    :raises exceptions.KubectlBaseException: if an annotation exists and overwrite=False
+    :raises exceptions.KubectlBaseException: no annotation are submitted"""
     body = get(obj, name, namespace)
     current = body['metadata'].get('annotations', {}) or {}
     if overwrite is False:
         for key in current:
-            if key in annotations:
+            if key in annotations and annotations[key] is not None:
                 raise exceptions.KubectlBaseException(
                     "error: overwrite is false but found the "
                     "following declared annotation(s): "
                     f"'{key}' already has a value ({current[key]})")
+    if not annotations:
+        raise exceptions.KubectlBaseException(
+            "error: at least one annotation update is required")
     current.update(annotations)
-    body['metadata']['annotations'] = current
-    return patch(obj, name, namespace, body, dry_run=dry_run)
+    return patch(obj, name, namespace,
+                 {'metadata': {'annotations': current}},
+                 dry_run=dry_run)
 
 
 def logs(name: str, namespace: str = None, container: str = None,
