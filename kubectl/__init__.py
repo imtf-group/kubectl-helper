@@ -10,6 +10,7 @@ import tarfile
 import re
 import select
 import json
+import time
 import tempfile
 import urllib3
 import kubernetes.client
@@ -465,7 +466,7 @@ def run(name: str, image: str, namespace: str = None, annotations: dict = None,
                      namespace=namespace, body=body)
 
 
-def annotate(obj, name: str, namespace: str = None,
+def annotate(obj: str, name: str, namespace: str = None,
              overwrite: bool = False, dry_run: bool = False,
              **annotations) -> dict:
     """Annotate a resource (similar to 'kubectl annotate')
@@ -493,6 +494,37 @@ def annotate(obj, name: str, namespace: str = None,
     return patch(obj, name, namespace,
                  {'metadata': {'annotations': current}},
                  dry_run=dry_run)
+
+
+def wait(obj: str, name: str, namespace: str = None,
+         condition: str = None, timeout: int = 300) -> bool:
+    """Wait for a pod to be at a given state
+    :param obj: resource type
+    :param name: pod name
+    :param namespace: namespace
+    :param condition: condition to be ready
+    :param timeout: time limit to wait
+    :returns: bool
+    :raises TimeoutError: if the timeout exceeeds"""
+    namespace = namespace or 'default'
+    condition = condition or 'running'
+    _api = api_resources(obj)
+    _res = get(obj, name, namespace)
+    if _api['kind'] not in ('Pod', 'Job'):
+        raise AttributeError("Only jobs and pods are supported")
+    _start = time.time()
+    while True:
+        if time.time() - _start > timeout:
+            raise TimeoutError(f"The pod {name} is still not at status {condition}")
+        if _api['kind'] == 'Pod' and _res['status']['phase'].lower() == condition.lower():
+            break
+        if _api['kind'] == 'Job' and \
+                condition.lower() in _res['status'] and \
+                _res['status'][condition.lower()]:
+            break
+        time.sleep(5)
+        _res = get(obj, name, namespace)
+    return True
 
 
 def logs(name: str, namespace: str = None, container: str = None,
