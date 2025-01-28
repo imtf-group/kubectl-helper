@@ -502,25 +502,28 @@ def wait(obj: str, name: str, namespace: str = None,
     :param obj: resource type
     :param name: pod name
     :param namespace: namespace
-    :param condition: condition to be ready
+    :param condition: condition in the form condition=status
     :param timeout: time limit to wait
     :returns: bool
-    :raises TimeoutError: if the timeout exceeeds"""
+    :raises exceptions.KubectlBaseException: if the timeout exceeeds"""
     namespace = namespace or 'default'
-    condition = condition or 'running'
-    _api = api_resources(obj)
+    condition = condition or 'status.phase=running'
+    if len(condition.split('=')) != 2:
+        raise exceptions.KubectlBaseException(
+            "condition format must be condition=status")
     _res = get(obj, name, namespace)
-    if _api['kind'] not in ('Pod', 'Job'):
-        raise AttributeError("Only jobs and pods are supported")
     _start = time.time()
     while True:
         if time.time() - _start > timeout:
-            raise TimeoutError(f"The pod {name} is still not at status {condition}")
-        if _api['kind'] == 'Pod' and _res['status']['phase'].lower() == condition.lower():
-            break
-        if _api['kind'] == 'Job' and \
-                condition.lower() in _res['status'] and \
-                _res['status'][condition.lower()]:
+            raise exceptions.KubectlBaseException(
+                f"The pod {name} is still not at status {condition}")
+        for _sub in condition.split('=')[0].split('.'):
+            try:
+                _res = _res[_sub]
+            except KeyError:
+                raise exceptions.KubectlBaseException(
+                    f"condition {condition.split('=')[0]} is invalid")
+        if str(_res).lower() == condition.split('=')[1].lower():
             break
         time.sleep(5)
         _res = get(obj, name, namespace)
