@@ -516,13 +516,17 @@ def wait(obj: str, name: str, namespace: str = None,
     while True:
         if time.time() - _start > timeout:
             raise exceptions.KubectlBaseException(
-                f"The pod {name} is still not at status {condition}")
+                f'error: unrecognized condition: "{condition}"')
         for _sub in condition.split('=')[0].split('.'):
             try:
                 _res = _res[_sub]
             except KeyError:
                 raise exceptions.KubectlBaseException(
                     f"condition {condition.split('=')[0]} is invalid")
+        if not isinstance(_res, (int, str)):
+            raise exceptions.KubectlBaseException(
+                "error: condition leads to a nested object"
+                " or list which is not supported")
         if str(_res).lower() == condition.split('=')[1].lower():
             break
         time.sleep(5)
