@@ -110,6 +110,13 @@ def _find_container(name: str, namespace: str, container: str = None):
     return container
 
 
+def get_contexts() -> dict:
+    """List all the current contexts from ~/.kube/config or KUBECONFIG
+    :returns: context dict"""
+    _contexts, _ = kubernetes.config.kube_config.list_kube_config_contexts()
+    return _contexts
+
+
 def connect(host: str = None, api_key: str = None,
             certificate: str = None, context: str = None) -> str:
     """Create configuration so python-kubernetes can access resources.
@@ -120,7 +127,7 @@ def connect(host: str = None, api_key: str = None,
     :param api_key: Kubernetes server API token
     :param certificate: Kubernetes server SSL certificate
     :param context: context to use if local config file is used (default: current one)
-    :returns: K8s server URL where the client is connected to
+    :returns: used context
     :raises exceptions.KubectlConfigException: if the connection fails"""
     # pylint: disable=global-statement
     global _temp_files
@@ -153,8 +160,14 @@ def connect(host: str = None, api_key: str = None,
         else:
             configuration.verify_ssl = False
         kubernetes.client.Configuration.set_default(configuration)
-    # pylint: disable=protected-access
-    return kubernetes.client.Configuration._default.host
+    if not context:
+        try:
+            _, _active = kubernetes.config.kube_config.list_kube_config_contexts()
+        except kubernetes.config.config_exception.ConfigException as e:
+            raise exceptions.KubectlConfigException(str(e)) from e
+        if _active:
+            context = _active['name']
+    return context
 
 
 def api_resources(obj: str = None) -> dict:
@@ -173,15 +186,16 @@ def api_resources(obj: str = None) -> dict:
         global_api = kubernetes.client.ApisApi()
         api = kubernetes.client.CustomObjectsApi()
         for api_group in global_api.get_api_versions().to_dict()['groups']:
-            for res in api.get_api_resources(
-                    api_group['name'],
-                    api_group['preferred_version']['version']).to_dict()['resources']:
-                res['api'] = {
-                    'name': 'CustomObjectsApi',
-                    'group': api_group['name'],
-                    'version': api_group['preferred_version']['version'],
-                    'group_version': api_group['preferred_version']['group_version']}
-                _resource_cache += [res]
+            for version in api_group['versions']:
+                for res in api.get_api_resources(
+                        api_group['name'],
+                        version['version']).to_dict()['resources']:
+                    res['api'] = {
+                        'name': 'CustomObjectsApi',
+                        'group': api_group['name'],
+                        'version': version['version'],
+                        'group_version': version['group_version']}
+                    _resource_cache += [res]
     if obj is not None:
         for _cache in _resource_cache:
             if _cache['name'] == obj or _cache['kind'].lower() == obj.lower() or \
