@@ -13,9 +13,9 @@ import json
 import time
 import tempfile
 import urllib3
-import kubernetes.client
-import kubernetes.config
-import kubernetes.stream
+import kubernetes.client  # pylint: disable=import-error
+import kubernetes.config  # pylint: disable=import-error
+import kubernetes.stream  # pylint: disable=import-error
 from kubectl import exceptions
 
 
@@ -520,9 +520,9 @@ def wait(obj: str, name: str, namespace: str = None,
         for _sub in condition.split('=')[0].split('.'):
             try:
                 _res = _res[_sub]
-            except KeyError:
+            except KeyError as exc:
                 raise exceptions.KubectlBaseException(
-                    f"condition {condition.split('=')[0]} is invalid")
+                    f"condition {condition.split('=')[0]} is invalid") from exc
         if not isinstance(_res, (int, str)):
             raise exceptions.KubectlBaseException(
                 "error: condition leads to a nested object"

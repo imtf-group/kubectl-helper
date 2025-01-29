@@ -14,6 +14,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+      - name: set a Mock kubeconfig file
+        shell: bash
+        run: |
+          kubectl config set-cluster mock-cluster --server=https://1.2.3.4
+          kubectl config set-credentials cluster-admin --username=admin --password=password
+          kubectl config set-context mock-context --user=cluster-admin --cluster mock-cluster
+          kubectl config use-context mock-context
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

@@ -86,7 +86,7 @@ class InitTests(unittest.TestCase):
         }
         m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
             'name': 'imtf.k8s.io',
-            'preferred_version': {'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}
+            'versions': [{'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}]
         }]}
         m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
             'resources': [{
@@ -188,7 +188,7 @@ class InitTests(unittest.TestCase):
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
         m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
             'name': 'imtf.k8s.io',
-            'preferred_version': {'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}
+            'versions': [{'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}]
         }]}
         m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
             'resources': [{
@@ -212,7 +212,7 @@ class InitTests(unittest.TestCase):
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
         m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
             'name': 'imtf.k8s.io',
-            'preferred_version': {'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}
+            'versions': [{'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}]
         }]}
         m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
             'resources': [{
@@ -237,7 +237,7 @@ class InitTests(unittest.TestCase):
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
         m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
             'name': 'imtf.k8s.io',
-            'preferred_version': {'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}
+            'versions': [{'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}]
         }]}
         m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
             'resources': [{
@@ -312,7 +312,7 @@ class InitTests(unittest.TestCase):
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
         m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
             'name': 'imtf.k8s.io',
-            'preferred_version': {'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}
+            'versions': [{'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}]
         }]}
         m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
             'resources': [{
@@ -333,7 +333,7 @@ class InitTests(unittest.TestCase):
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
         m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
             'name': 'imtf.k8s.io',
-            'preferred_version': {'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}
+            'versions': [{'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}]
         }]}
         m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
             'resources': [{
@@ -397,7 +397,7 @@ class InitTests(unittest.TestCase):
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
         m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
             'name': 'imtf.k8s.io',
-            'preferred_version': {'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}
+            'versions': [{'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}]
         }]}
         m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
             'resources': [{
@@ -419,7 +419,7 @@ class InitTests(unittest.TestCase):
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
         m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
             'name': 'imtf.k8s.io',
-            'preferred_version': {'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}
+            'versions': [{'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}]
         }]}
         m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
             'resources': [{
@@ -481,7 +481,7 @@ class InitTests(unittest.TestCase):
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
         m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
             'name': 'imtf.k8s.io',
-            'preferred_version': {'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}
+            'versions': [{'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}]
         }]}
         m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
             'resources': [{
@@ -502,7 +502,7 @@ class InitTests(unittest.TestCase):
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
         m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
             'name': 'imtf.k8s.io',
-            'preferred_version': {'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}
+            'versions': [{'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}]
         }]}
         m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
             'resources': [{
@@ -576,6 +576,15 @@ class InitTests(unittest.TestCase):
                 body={'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'name': 'nginx', 'namespace': 'default', 'annotations': {"test": "jb", "blah": None}}},
                 namespace='default')
 
+    def test_annotate_no_annotations(self):
+        m = mock.Mock()
+        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
+            {"kind": "Pod", "apiVersion": "v1", "metadata": {"name": "nginx", 'annotations': {'owner': 'imtf', 'user': 'foobar'}}, "spec": {}}]}
+        with mock.patch("kubernetes.client", m):
+            with self.assertRaises(kubectl.exceptions.KubectlBaseException):
+                kubectl.annotate("pod", "nginx")
+
     def test_annotate_existing(self):
         m = mock.Mock()
         kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
@@ -596,6 +605,43 @@ class InitTests(unittest.TestCase):
                 name='nginx',
                 body={'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'name': 'nginx', 'namespace': 'default', 'annotations': {'owner': 'imtf', 'user': 'bar'}}},
                 namespace='default')
+
+    def test_wait_for_pod(self):
+        m = mock.Mock()
+        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        m.CoreV1Api().list_namespaced_pod.side_effect = [
+        {'items': [{"kind": "Pod", "apiVersion": "v1", "status": {"phase": "Pending"}, "metadata": {"name": "nginx"}, "spec": {}}]},
+        {'items': [{"kind": "Pod", "apiVersion": "v1", "status": {"phase": "Running"}, "metadata": {"name": "nginx"}, "spec": {}}]}]
+        with mock.patch("kubernetes.client", m):
+            self.assertTrue(kubectl.wait("pod", "nginx"))
+
+    def test_wait_for_pod_wrong_condition(self):
+        m = mock.Mock()
+        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
+            {"kind": "Pod", "apiVersion": "v1", "status": {"phase": "Running"}, "metadata": {"name": "nginx"}, "spec": {}}]}
+        with mock.patch("kubernetes.client", m):
+            with self.assertRaises(kubectl.exceptions.KubectlBaseException):
+                kubectl.wait("pod", "nginx", condition="status.started=1")
+
+    def test_wait_for_pod_timeout(self):
+        m = mock.Mock()
+        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
+            {"kind": "Pod", "apiVersion": "v1", "status": {"phase": "Running"}, "metadata": {"name": "nginx"}, "spec": {}}]}
+        with mock.patch("kubernetes.client", m):
+            with self.assertRaises(kubectl.exceptions.KubectlBaseException):
+                kubectl.wait("pod", "nginx", timeout=0)
+
+    def test_wait_for_pod_wrong_type(self):
+        m = mock.Mock()
+        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
+            {"kind": "Pod", "apiVersion": "v1", "status": {"phase": "Running"}, "metadata": {"name": "nginx"}, "spec": {}}]}
+        with mock.patch("kubernetes.client", m):
+            with self.assertRaises(kubectl.exceptions.KubectlBaseException):
+                kubectl.wait("pod", "nginx", condition="status=1")
+
 
     def test_exec_stdout_stderr(self):
         mock_ws = mock.Mock()
@@ -811,7 +857,7 @@ class InitTests(unittest.TestCase):
         m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {'resources': []}
         m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {'groups': [{
             'name': 'metrics.k8s.io',
-            'preferred_version': {'version': 'v1', 'group_version': 'metrics.k8s.io/v1'}
+            'versions': [{'version': 'v1', 'group_version': 'metrics.k8s.io/v1'}]
         }]}
         m.CustomObjectsApi.return_value.get_api_resources.return_value.to_dict.return_value = {
             'resources': [{
@@ -824,9 +870,13 @@ class InitTests(unittest.TestCase):
             kubectl.top("pods")
             m.CustomObjectsApi().list_namespaced_custom_object.assert_called_once_with(label_selector=None, plural='podmetrics', group='metrics.k8s.io', version='v1', namespace='default')
 
+
     def test_top_no_pods_or_nodes(self):
         with self.assertRaises(kubectl.exceptions.KubectlBaseException):
             kubectl.top("deployments")
+
+    def test_get_contexts(self):
+        self.assertTrue(kubectl.get_contexts())
 
     def test_cp_not_pull_or_push(self):
         with self.assertRaises(kubectl.exceptions.KubectlBaseException):
