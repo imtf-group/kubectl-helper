@@ -18,6 +18,6 @@ setup(
     python_requires='>=3.6',
     install_requires=[
         'requests==2.32.3',
-        'kubernetes==31.0.0'
+        'kubernetes==32.0.0'
     ]
 )
