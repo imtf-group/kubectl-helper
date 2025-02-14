@@ -164,8 +164,8 @@ def connect(host: str = None, api_key: str = None,
     if not context:
         try:
             _, _active = kubernetes.config.kube_config.list_kube_config_contexts()
-        except kubernetes.config.config_exception.ConfigException as e:
-            raise exceptions.KubectlConfigException(str(e)) from e
+        except kubernetes.config.config_exception.ConfigException:
+            _active = None
         if _active:
             context = _active['name']
     return context
