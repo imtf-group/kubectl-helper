@@ -145,10 +145,10 @@ class InitTests(unittest.TestCase):
         kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list"]}]
         m = mock.Mock()
         m.CoreV1Api.return_value.list_namespaced_pod.return_value = {'items': [{
-            'metadata': {'name': 'foobar'},
-            'metadata': {'name': 'toto'}}]}
+            'api_version': None, 'metadata': {'name': 'foobar'},
+            'api_version': None, 'metadata': {'name': 'toto'}}]}
         with mock.patch("kubernetes.client", m):
-            self.assertEqual(kubectl.get("pod", "toto"), {'metadata': {'name': 'toto'}})
+            self.assertEqual(kubectl.get("pod", "toto"), {'apiVersion': None, 'metadata': {'name': 'toto'}})
             m.CoreV1Api().list_namespaced_pod.assert_called_once_with(label_selector=None, namespace='default')
 
     def test_get_pod_wrong_verb(self):

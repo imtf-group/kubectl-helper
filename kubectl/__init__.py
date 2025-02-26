@@ -300,7 +300,7 @@ def get(obj: str, name: str = None, namespace: str = None,
             opts['namespace'] = namespace
         else:
             ftn = 'cluster_custom_object'
-    return _api_call(resource['api']['name'], 'list', ftn, **opts)
+    return _prepare_body(_api_call(resource['api']['name'], 'list', ftn, **opts))
 
 
 def delete(obj: str, name: str, namespace: str = None, dry_run: bool = False) -> dict:
