@@ -145,10 +145,10 @@ class InitTests(unittest.TestCase):
         kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list"]}]
         m = mock.Mock()
         m.CoreV1Api.return_value.list_namespaced_pod.return_value = {'items': [{
-            'api_version': None, 'metadata': {'name': 'foobar'},
-            'api_version': None, 'metadata': {'name': 'toto'}}]}
+            'apiVersion': None, 'metadata': {'name': 'foobar'},
+            'apiVersion': None, 'metadata': {'name': 'toto'}}]}
         with mock.patch("kubernetes.client", m):
-            self.assertEqual(kubectl.get("pod", "toto"), {'apiVersion': None, 'metadata': {'name': 'toto'}})
+            self.assertEqual(kubectl.get("pod", "toto"), {'api_version': None, 'metadata': {'name': 'toto'}})
             m.CoreV1Api().list_namespaced_pod.assert_called_once_with(label_selector=None, namespace='default')
 
     def test_get_pod_wrong_verb(self):
@@ -613,7 +613,8 @@ class InitTests(unittest.TestCase):
         {'items': [{"kind": "Pod", "apiVersion": "v1", "status": {"phase": "Pending"}, "metadata": {"name": "nginx"}, "spec": {}}]},
         {'items': [{"kind": "Pod", "apiVersion": "v1", "status": {"phase": "Running"}, "metadata": {"name": "nginx"}, "spec": {}}]}]
         with mock.patch("kubernetes.client", m):
-            self.assertTrue(kubectl.wait("pod", "nginx"))
+            with mock.patch("time.sleep", mock.Mock()):
+                self.assertTrue(kubectl.wait("pod", "nginx"))
 
     def test_wait_for_pod_wrong_condition(self):
         m = mock.Mock()

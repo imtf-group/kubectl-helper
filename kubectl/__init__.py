@@ -41,10 +41,34 @@ def camel_to_snake(name: str) -> str:
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', name).lower()
 
 
+def camel_to_snake_dict(body: dict) -> dict:
+    """Ensure fields are in Camel Case"""
+    if isinstance(body, dict):
+        return {
+            camel_to_snake(key): (
+                camel_to_snake_dict(value) if key != 'data' else value)
+            for key, value in body.items()}
+    if isinstance(body, (list, tuple)):
+        return [camel_to_snake_dict(sub) for sub in body]
+    return body
+
+
 def snake_to_camel(name: str) -> str:
     """Converts Snake-style string to Camel-style string"""
     name = name.split('_')
     return name[0] + ''.join(ele.title() for ele in name[1:])
+
+
+def snake_to_camel_dict(body: dict) -> dict:
+    """Ensure fields are in Camel Case"""
+    if isinstance(body, dict):
+        return {
+            snake_to_camel(key): (
+                snake_to_camel_dict(value) if key != 'data' else value)
+            for key, value in body.items()}
+    if isinstance(body, (list, tuple)):
+        return [snake_to_camel_dict(sub) for sub in body]
+    return body
 
 
 def _read_bytes_from_wsclient(
@@ -75,18 +99,6 @@ def _read_bytes_from_wsclient(
                     elif channel == kubernetes.stream.ws_client.STDERR_CHANNEL:
                         stderr_bytes = data
     return stdout_bytes, stderr_bytes, not ws_client.is_open()
-
-
-def _prepare_body(body):
-    """Ensure fields are in Camel Case"""
-    if isinstance(body, dict):
-        return {
-            snake_to_camel(key): (
-                _prepare_body(value) if key != 'data' else value)
-            for key, value in body.items()}
-    if isinstance(body, (list, tuple)):
-        return [_prepare_body(sub) for sub in body]
-    return body
 
 
 def _find_container(name: str, namespace: str, container: str = None):
@@ -300,7 +312,7 @@ def get(obj: str, name: str = None, namespace: str = None,
             opts['namespace'] = namespace
         else:
             ftn = 'cluster_custom_object'
-    return _prepare_body(_api_call(resource['api']['name'], 'list', ftn, **opts))
+    return camel_to_snake_dict(_api_call(resource['api']['name'], 'list', ftn, **opts))
 
 
 def delete(obj: str, name: str, namespace: str = None, dry_run: bool = False) -> dict:
@@ -362,7 +374,7 @@ def create(obj: str, name: str = None, namespace: str = None,
         body['apiVersion'] = resource['api']['group_version']
     if 'kind' not in body:
         body['kind'] = resource['kind']
-    opts = {"body": _prepare_body(body)}
+    opts = {"body": snake_to_camel_dict(body)}
     if resource['api']['name'] == 'CoreV1Api':
         ftn = camel_to_snake(resource['kind'])
         if resource['namespaced'] is True:
@@ -409,7 +421,7 @@ def patch(obj: str, name: str = None, namespace: str = None,
         body['apiVersion'] = resource['api']['group_version']
     if 'kind' not in body:
         body['kind'] = resource['kind']
-    opts = {"name": body['metadata']['name'], "body": _prepare_body(body)}
+    opts = {"name": body['metadata']['name'], "body": snake_to_camel_dict(body)}
     if resource['api']['name'] == 'CoreV1Api':
         ftn = camel_to_snake(resource['kind'])
         if resource['namespaced'] is True:
