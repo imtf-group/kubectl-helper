@@ -109,7 +109,7 @@ def _find_container(name: str, namespace: str, container: str = None):
         resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
     except urllib3.exceptions.PoolError as e:
         raise exceptions.KubectlConnectionException(
-            f"{e.pool.host}:{e.pool.port}{e.url}")
+            f"{e.pool.host}:{e.pool.port}")
     if resp['spec']['containers']:
         containers += [ctn['name'] for ctn in resp['spec']['containers']]
     if resp['spec'].get('init_containers'):
@@ -200,7 +200,7 @@ def api_resources(obj: str = None) -> dict:
             _resources = api.get_api_resources().to_dict()['resources']
         except urllib3.exceptions.PoolError as e:
             raise exceptions.KubectlConnectionException(
-                f"{e.pool.host}:{e.pool.port}{e.url}")
+                f"{e.pool.host}:{e.pool.port}")
         for res in _resources:
             res['api'] = {
                 'name': 'CoreV1Api',
@@ -214,7 +214,7 @@ def api_resources(obj: str = None) -> dict:
             _groups = global_api.get_api_versions().to_dict()['groups']
         except urllib3.exceptions.PoolError as e:
             raise exceptions.KubectlConnectionException(
-                f"{e.pool.host}:{e.pool.port}{e.url}")
+                f"{e.pool.host}:{e.pool.port}")
         for api_group in _groups:
             for version in api_group['versions']:
                 _resources = []
@@ -224,7 +224,7 @@ def api_resources(obj: str = None) -> dict:
                         version['version']).to_dict()['resources']
                 except urllib3.exceptions.PoolError as e:
                     raise exceptions.KubectlConnectionException(
-                        f"{e.pool.host}:{e.pool.port}{e.url}")
+                        f"{e.pool.host}:{e.pool.port}")
                 for res in _resources:
                     res['api'] = {
                         'name': 'CustomObjectsApi',
@@ -253,7 +253,7 @@ def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
         api = getattr(kubernetes.client, api_resource)()
     except urllib3.exceptions.PoolError as e:
         raise exceptions.KubectlConnectionException(
-            f"{e.pool.host}:{e.pool.port}{e.url}")
+            f"{e.pool.host}:{e.pool.port}")
     try:
         objs = getattr(api, ftn)(**opts)
     except kubernetes.client.rest.ApiException as err:

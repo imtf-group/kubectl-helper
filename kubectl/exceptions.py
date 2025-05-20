@@ -15,7 +15,6 @@ class KubectlConnectionException(ValueError):
 
 class KubectlConfigException(KubectlBaseException):
     """Raised when the config cannot be loaded"""
-    pass
 
 
 class KubectlMethodException(KubectlBaseException):
