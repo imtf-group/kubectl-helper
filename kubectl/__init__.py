@@ -104,7 +104,12 @@ def _read_bytes_from_wsclient(
 def _find_container(name: str, namespace: str, container: str = None):
     api = kubernetes.client.CoreV1Api()
     containers = []
-    resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
+    resp = {}
+    try:
+        resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
+    except urllib3.exceptions.PoolError as e:
+        raise exceptions.KubectlConnectionException(
+            f"{e.pool.host}:{e.pool.port}")
     if resp['spec']['containers']:
         containers += [ctn['name'] for ctn in resp['spec']['containers']]
     if resp['spec'].get('init_containers'):
@@ -190,7 +195,13 @@ def api_resources(obj: str = None) -> dict:
     global _resource_cache
     if not _resource_cache:
         api = kubernetes.client.CoreV1Api()
-        for res in api.get_api_resources().to_dict()['resources']:
+        _resources = []
+        try:
+            _resources = api.get_api_resources().to_dict()['resources']
+        except urllib3.exceptions.PoolError as e:
+            raise exceptions.KubectlConnectionException(
+                f"{e.pool.host}:{e.pool.port}")
+        for res in _resources:
             res['api'] = {
                 'name': 'CoreV1Api',
                 'version': 'v1',
@@ -198,11 +209,23 @@ def api_resources(obj: str = None) -> dict:
             _resource_cache += [res]
         global_api = kubernetes.client.ApisApi()
         api = kubernetes.client.CustomObjectsApi()
-        for api_group in global_api.get_api_versions().to_dict()['groups']:
+        _groups = []
+        try:
+            _groups = global_api.get_api_versions().to_dict()['groups']
+        except urllib3.exceptions.PoolError as e:
+            raise exceptions.KubectlConnectionException(
+                f"{e.pool.host}:{e.pool.port}")
+        for api_group in _groups:
             for version in api_group['versions']:
-                for res in api.get_api_resources(
+                _resources = []
+                try:
+                    _resources = api.get_api_resources(
                         api_group['name'],
-                        version['version']).to_dict()['resources']:
+                        version['version']).to_dict()['resources']
+                except urllib3.exceptions.PoolError as e:
+                    raise exceptions.KubectlConnectionException(
+                        f"{e.pool.host}:{e.pool.port}")
+                for res in _resources:
                     res['api'] = {
                         'name': 'CustomObjectsApi',
                         'group': api_group['name'],
@@ -225,7 +248,12 @@ def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
     if verb == 'list' and 'name' in opts:
         name = opts['name']
         del opts['name']
-    api = getattr(kubernetes.client, api_resource)()
+    api = None
+    try:
+        api = getattr(kubernetes.client, api_resource)()
+    except urllib3.exceptions.PoolError as e:
+        raise exceptions.KubectlConnectionException(
+            f"{e.pool.host}:{e.pool.port}")
     try:
         objs = getattr(api, ftn)(**opts)
     except kubernetes.client.rest.ApiException as err:

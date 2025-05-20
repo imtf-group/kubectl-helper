@@ -7,6 +7,12 @@ class KubectlBaseException(ValueError):
         super().__init__(message)
 
 
+class KubectlConnectionException(ValueError):
+    """Raised when the K8s server cannot be reached"""
+    def __init__(self, message):
+        super().__init__(f"Failed to establish a new connection: {message}")
+
+
 class KubectlConfigException(KubectlBaseException):
     """Raised when the config cannot be loaded"""
 

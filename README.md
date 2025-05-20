@@ -2,7 +2,10 @@
 
 * [kubectl](#kubectl)
   * [camel\_to\_snake](#kubectl.camel_to_snake)
+  * [camel\_to\_snake\_dict](#kubectl.camel_to_snake_dict)
   * [snake\_to\_camel](#kubectl.snake_to_camel)
+  * [snake\_to\_camel\_dict](#kubectl.snake_to_camel_dict)
+  * [get\_contexts](#kubectl.get_contexts)
   * [connect](#kubectl.connect)
   * [api\_resources](#kubectl.api_resources)
   * [scale](#kubectl.scale)
@@ -12,6 +15,7 @@
   * [patch](#kubectl.patch)
   * [run](#kubectl.run)
   * [annotate](#kubectl.annotate)
+  * [wait](#kubectl.wait)
   * [logs](#kubectl.logs)
   * [apply](#kubectl.apply)
   * [top](#kubectl.top)
@@ -19,6 +23,7 @@
   * [cp](#kubectl.cp)
 * [kubectl.exceptions](#kubectl.exceptions)
   * [KubectlBaseException](#kubectl.exceptions.KubectlBaseException)
+  * [KubectlConnectionException](#kubectl.exceptions.KubectlConnectionException)
   * [KubectlConfigException](#kubectl.exceptions.KubectlConfigException)
   * [KubectlMethodException](#kubectl.exceptions.KubectlMethodException)
   * [KubectlResourceNameException](#kubectl.exceptions.KubectlResourceNameException)
@@ -43,6 +48,16 @@ def camel_to_snake(name: str) -> str
 
 Converts Camel-style string to Snake-style string
 
+<a id="kubectl.camel_to_snake_dict"></a>
+
+#### camel\_to\_snake\_dict
+
+```python
+def camel_to_snake_dict(body: dict) -> dict
+```
+
+Ensure fields are in Camel Case
+
 <a id="kubectl.snake_to_camel"></a>
 
 #### snake\_to\_camel
@@ -52,6 +67,30 @@ def snake_to_camel(name: str) -> str
 ```
 
 Converts Snake-style string to Camel-style string
+
+<a id="kubectl.snake_to_camel_dict"></a>
+
+#### snake\_to\_camel\_dict
+
+```python
+def snake_to_camel_dict(body: dict) -> dict
+```
+
+Ensure fields are in Camel Case
+
+<a id="kubectl.get_contexts"></a>
+
+#### get\_contexts
+
+```python
+def get_contexts() -> dict
+```
+
+List all the current contexts from ~/.kube/config or KUBECONFIG
+
+**Returns**:
+
+context dict
 
 <a id="kubectl.connect"></a>
 
@@ -83,7 +122,7 @@ If unset, the SSL check is disabled
 
 **Returns**:
 
-K8s server URL where the client is connected to
+used context
 
 <a id="kubectl.api_resources"></a>
 
@@ -280,7 +319,7 @@ data similar to 'kubectl create po' in JSON format
 #### annotate
 
 ```python
-def annotate(obj,
+def annotate(obj: str,
              name: str,
              namespace: str = None,
              overwrite: bool = False,
@@ -306,6 +345,36 @@ Annotate a resource (similar to 'kubectl annotate')
 **Returns**:
 
 data similar to 'kubectl annotate' in JSON format
+
+<a id="kubectl.wait"></a>
+
+#### wait
+
+```python
+def wait(obj: str,
+         name: str,
+         namespace: str = None,
+         condition: str = None,
+         timeout: int = 300) -> bool
+```
+
+Wait for a pod to be at a given state
+
+**Arguments**:
+
+- `obj`: resource type
+- `name`: pod name
+- `namespace`: namespace
+- `condition`: condition in the form condition=status
+- `timeout`: time limit to wait
+
+**Raises**:
+
+- `exceptions.KubectlBaseException`: if the timeout exceeeds
+
+**Returns**:
+
+bool
 
 <a id="kubectl.logs"></a>
 
@@ -457,6 +526,16 @@ class KubectlBaseException(ValueError)
 
 Base kubectl exceptions. Catch it all
 
+<a id="kubectl.exceptions.KubectlConnectionException"></a>
+
+## KubectlConnectionException Objects
+
+```python
+class KubectlConnectionException(ValueError)
+```
+
+Raised when the K8s server cannot be reached
+
 <a id="kubectl.exceptions.KubectlConfigException"></a>
 
 ## KubectlConfigException Objects
@@ -517,3 +596,4 @@ class KubectlInvalidContainerException(KubectlBaseException)
 
 Raised when the container name is incorrect
 
+Generated with: `pydoc-markdown -m kubectl -m kubectl.exceptions -I $(pwd) --render-toc > README.md`
