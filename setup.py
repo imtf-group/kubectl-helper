@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
     name="kubectl",
-    version="0.0.7",
+    version="0.0.8",
     author="Jean-Baptiste Langlois",
     author_email="jean-baptiste.langlois@imtf.com",
     description="Helper which mimics Kubectl behaviour",
