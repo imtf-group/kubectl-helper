@@ -553,10 +553,11 @@ def wait(obj: str, name: str, namespace: str = None,
             "condition format must be condition=status")
     _res = get(obj, name, namespace)
     _start = time.time()
+    obj = _res['kind'].lower()
     while True:
         if time.time() - _start > timeout:
             raise exceptions.KubectlBaseException(
-                f'error: unrecognized condition: "{condition}"')
+                f'error: timed out waiting for the condition on {obj}/{name}')
         for _sub in condition.split('=')[0].split('.'):
             try:
                 _res = _res[_sub]
