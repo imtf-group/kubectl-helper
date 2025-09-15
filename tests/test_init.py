@@ -15,7 +15,9 @@ class InitTests(unittest.TestCase):
 
     def setUp(self):
         kubernetes.client.Configuration._default = None
-        kubectl._resource_cache = []
+        kubectl.RESOURCE_CACHE = {}
+        kubectl.ACTIVE_CONTEXT = ''
+        self.maxDiff = None
 
     def test_cleanup_files(self):
         m = mock.Mock() 
@@ -103,7 +105,7 @@ class InitTests(unittest.TestCase):
             'api': {'name': 'CustomObjectsApi', 'group': 'imtf.k8s.io', 'version': 'v1', 'group_version': 'imtf.k8s.io/v1'}}]
         with mock.patch("kubernetes.client", m):
             self.assertEqual(kubectl.api_resources(), results)
-            self.assertEqual(kubectl._resource_cache, results)
+            self.assertEqual(kubectl.RESOURCE_CACHE, {'': results})
 
     def test_api_call_exception_1(self):
         m = mock.Mock()
@@ -127,14 +129,14 @@ class InitTests(unittest.TestCase):
 
     def test_list_namespace(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, "kind": "Namespace", "name": "namespaces", "namespaced": False, "short_names": ["ns"], "verbs": ["get", "list"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, "kind": "Namespace", "name": "namespaces", "namespaced": False, "short_names": ["ns"], "verbs": ["get", "list"]}]}
         m.CoreV1Api.return_value.list_namespace.return_value = {'items': ['boo']}
         with mock.patch("kubernetes.client", m):
             self.assertEqual(kubectl.get("namespaces"), ["boo"])
             m.CoreV1Api().list_namespace.assert_called_once_with(label_selector=None)
 
     def test_list_namespace_wrong_verb(self):
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, "kind": "Namespace", "name": "namespaces", "namespaced": False, "short_names": ["ns"], "verbs": ["create", "delete"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, "kind": "Namespace", "name": "namespaces", "namespaced": False, "short_names": ["ns"], "verbs": ["create", "delete"]}]}
         m = mock.Mock()
         m.CoreV1Api.return_value.list_namespace.return_value = {'items': ['boo']}
         with mock.patch("kubernetes.client", m):
@@ -142,7 +144,7 @@ class InitTests(unittest.TestCase):
                 kubectl.get("namespaces")
 
     def test_get_pod(self):
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list"]}]}
         m = mock.Mock()
         m.CoreV1Api.return_value.list_namespaced_pod.return_value = {'items': [{
             'apiVersion': None, 'metadata': {'name': 'foobar'},
@@ -153,7 +155,7 @@ class InitTests(unittest.TestCase):
 
     def test_get_pod_wrong_verb(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["create", "list"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["create", "list"]}]}
         m.CoreV1Api.return_value.list_namespaced_pod.return_value = {'items': [
             {'metadata': {'name': 'foobar'}},
             {'metadata': {'name': 'toto'}}]}
@@ -162,7 +164,7 @@ class InitTests(unittest.TestCase):
                 kubectl.get("pod", "toto")
 
     def test_get_pod_with_namespace(self):
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list"]}]}
         m = mock.Mock()
         m.CoreV1Api.return_value.list_namespaced_pod.return_value = {'items': [
             {'metadata': {'name': 'foobar'}},
@@ -172,7 +174,7 @@ class InitTests(unittest.TestCase):
             m.CoreV1Api().list_namespaced_pod.assert_called_once_with(label_selector=None, namespace='myns')
 
     def test_get_pod_with_all_namespaces(self):
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list"]}]}
         m = mock.Mock()
         m.CoreV1Api.return_value.list_pod_for_all_namespaces.return_value = {'items': [
             {'metadata': {'name': 'foobar'}},
@@ -259,49 +261,49 @@ class InitTests(unittest.TestCase):
                 version='v1')
 
     def test_scale_pod(self):
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list"]}]}
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
             with self.assertRaises(kubectl.exceptions.KubectlBaseException):
                 kubectl.scale("pod", "foobar", replicas=2)
 
     def test_scale_deployment_wrong_verb(self):
-        kubectl._resource_cache = [{'kind': 'Deployment', 'name': 'deployments', 'namespaced': True, 'short_names': ['deploy'], 'verbs': ['get', 'list'], 'api': {'name': 'CustomObjectsApi', 'group': 'apps', 'version': 'v1', 'group_version': 'apps/v1'}}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'kind': 'Deployment', 'name': 'deployments', 'namespaced': True, 'short_names': ['deploy'], 'verbs': ['get', 'list'], 'api': {'name': 'CustomObjectsApi', 'group': 'apps', 'version': 'v1', 'group_version': 'apps/v1'}}]}
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
             with self.assertRaises(kubectl.exceptions.KubectlBaseException):
                 kubectl.scale("deployment", "foobar", replicas=2)
 
     def test_scale_deployment(self):
-        kubectl._resource_cache = [{'kind': 'Deployment', 'name': 'deployments', 'namespaced': True, 'short_names': ['deploy'], 'verbs': ['patch'], 'api': {'name': 'CustomObjectsApi', 'group': 'apps', 'version': 'v1', 'group_version': 'apps/v1'}}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'kind': 'Deployment', 'name': 'deployments', 'namespaced': True, 'short_names': ['deploy'], 'verbs': ['patch'], 'api': {'name': 'CustomObjectsApi', 'group': 'apps', 'version': 'v1', 'group_version': 'apps/v1'}}]}
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
             kubectl.scale("deploy", "foobar", replicas=2)
             m.AppsV1Api().patch_namespaced_deployment_scale.assert_called_once_with(name='foobar', namespace='default', body={'spec': {'replicas': 2}})
 
     def test_scale_deployment_dry_run(self):
-        kubectl._resource_cache = [{'kind': 'Deployment', 'name': 'deployments', 'namespaced': True, 'short_names': ['deploy'], 'verbs': ['patch'], 'api': {'name': 'CustomObjectsApi', 'group': 'apps', 'version': 'v1', 'group_version': 'apps/v1'}}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'kind': 'Deployment', 'name': 'deployments', 'namespaced': True, 'short_names': ['deploy'], 'verbs': ['patch'], 'api': {'name': 'CustomObjectsApi', 'group': 'apps', 'version': 'v1', 'group_version': 'apps/v1'}}]}
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
             kubectl.scale("deploy", "foobar", replicas=2, dry_run=True)
             m.AppsV1Api().patch_namespaced_deployment_scale.assert_called_once_with(name='foobar', namespace='default', body={'spec': {'replicas': 2}}, dry_run='All')
 
     def test_delete_pod(self):
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "delete"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "delete"]}]}
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
             kubectl.delete("pod", "toto")
             m.CoreV1Api().delete_namespaced_pod.assert_called_once_with(name='toto', namespace='default')
 
     def test_delete_pod_dry_run(self):
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "delete"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "delete"]}]}
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
             kubectl.delete("pod", "toto", dry_run=True)
             m.CoreV1Api().delete_namespaced_pod.assert_called_once_with(name='toto', namespace='default', dry_run='All')
 
     def test_delete_pod_wrong_verb(self):
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["create", "list"]}]        
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["create", "list"]}]        }
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
             with self.assertRaises(kubectl.exceptions.KubectlBaseException):
@@ -351,7 +353,7 @@ class InitTests(unittest.TestCase):
                 namespace='current')
 
     def test_patch_pod(self):
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
             kubectl.patch("pod", "toto", body={'spec': {'serviceAccountName': 'sa'}})
@@ -361,7 +363,7 @@ class InitTests(unittest.TestCase):
                 body={'spec': {'serviceAccountName': 'sa'}, 'metadata': {'namespace': 'default', 'name': 'toto'}, 'apiVersion': 'v1', 'kind': 'Pod'})
 
     def test_patch_pod_dry_run(self):
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
             kubectl.patch("pod", "toto", body={'spec': {'serviceAccountName': 'sa'}}, dry_run=True)
@@ -376,7 +378,7 @@ class InitTests(unittest.TestCase):
                 kubectl.patch("pod", body={'spec': {'serviceAccountName': 'sa'}})
 
     def test_patch_pod_with_namespace_parameter(self):
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
             kubectl.patch("pod", "toto", namespace='current', body={'metadata': {'namespace': 'test', 'name': 'toto'}, 'spec': {'serviceAccountName': 'sa'}})
@@ -386,7 +388,7 @@ class InitTests(unittest.TestCase):
                 body={'spec': {'serviceAccountName': 'sa'}, 'metadata': {'namespace': 'test', 'name': 'toto'}, 'apiVersion': 'v1', 'kind': 'Pod'})
 
     def test_patch_pod_wrong_verb(self):
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["create", "list"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["create", "list"]}]}
         m = mock.Mock()
         with mock.patch("kubernetes.client", m):
             with self.assertRaises(kubectl.exceptions.KubectlBaseException):
@@ -439,7 +441,7 @@ class InitTests(unittest.TestCase):
 
     def test_create_pod(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["create", "get", "list"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["create", "get", "list"]}]}
         with mock.patch("kubernetes.client", m):
             kubectl.create("pod", "toto", body={'spec': {'serviceAccountName': 'sa'}})
             m.CoreV1Api().create_namespaced_pod.assert_called_once_with(
@@ -448,7 +450,7 @@ class InitTests(unittest.TestCase):
 
     def test_create_pod_dry_run(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["create", "get", "list"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["create", "get", "list"]}]}
         with mock.patch("kubernetes.client", m):
             kubectl.create("pod", "toto", body={'spec': {'serviceAccountName': 'sa'}}, dry_run=True)
             m.CoreV1Api().create_namespaced_pod.assert_called_once_with(
@@ -462,7 +464,7 @@ class InitTests(unittest.TestCase):
 
     def test_create_pod_with_namespace_parameter(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["create", "get", "list"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["create", "get", "list"]}]}
         with mock.patch("kubernetes.client", m):
             kubectl.create("pod", "toto", namespace='current', body={'metadata': {'namespace': 'test', 'name': 'toto'}, 'spec': {'serviceAccountName': 'sa'}})
             m.CoreV1Api().create_namespaced_pod.assert_called_once_with(
@@ -471,7 +473,7 @@ class InitTests(unittest.TestCase):
 
     def test_create_pod_wrong_verb(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["delete", "list"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["delete", "list"]}]}
         with mock.patch("kubernetes.client", m):
             with self.assertRaises(kubectl.exceptions.KubectlBaseException):
                 kubectl.create("pod", "toto", body={'spec': {'serviceAccountName': 'sa'}})
@@ -521,7 +523,7 @@ class InitTests(unittest.TestCase):
 
     def test_apply_patch(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
             {"kind": "Pod", "apiVersion": "v1", "metadata": {"name": "nginx"}, "spec": {"containers": [{"image": "nginx"}]}}]}
         with mock.patch("kubernetes.client", m):
@@ -534,7 +536,7 @@ class InitTests(unittest.TestCase):
 
     def test_apply_create(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "create"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "create"]}]}
         m.CoreV1Api().list_namespaced_pod.return_value = {'items': []}
         with mock.patch("kubernetes.client", m):
             kubectl.apply(
@@ -545,7 +547,7 @@ class InitTests(unittest.TestCase):
 
     def test_apply_wrong_verb(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m.CoreV1Api().list_namespaced_pod.return_value = {'items': []}
         with mock.patch("kubernetes.client", m):
             with self.assertRaises(kubectl.exceptions.KubectlBaseException):
@@ -554,7 +556,7 @@ class InitTests(unittest.TestCase):
 
     def test_annotate(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
             {"kind": "Pod", "apiVersion": "v1", "metadata": {"name": "nginx"}, "spec": {}}]}
         with mock.patch("kubernetes.client", m):
@@ -566,7 +568,7 @@ class InitTests(unittest.TestCase):
 
     def test_annotate_delete(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
             {"kind": "Pod", "apiVersion": "v1", "metadata": {"name": "nginx", "annotations": {"test": "jb", "blah": "plop"}}, "spec": {}}]}
         with mock.patch("kubernetes.client", m):
@@ -578,7 +580,7 @@ class InitTests(unittest.TestCase):
 
     def test_annotate_no_annotations(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
             {"kind": "Pod", "apiVersion": "v1", "metadata": {"name": "nginx", 'annotations': {'owner': 'imtf', 'user': 'foobar'}}, "spec": {}}]}
         with mock.patch("kubernetes.client", m):
@@ -587,7 +589,7 @@ class InitTests(unittest.TestCase):
 
     def test_annotate_existing(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
             {"kind": "Pod", "apiVersion": "v1", "metadata": {"name": "nginx", 'annotations': {'owner': 'imtf', 'user': 'foobar'}}, "spec": {}}]}
         with mock.patch("kubernetes.client", m):
@@ -596,7 +598,7 @@ class InitTests(unittest.TestCase):
 
     def test_annotate_existing_overwrite(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
             {"kind": "Pod", "apiVersion": "v1", "metadata": {"name": "nginx", 'annotations': {'owner': 'imtf', 'user': 'foobar'}}, "spec": {}}]}
         with mock.patch("kubernetes.client", m):
@@ -608,7 +610,7 @@ class InitTests(unittest.TestCase):
 
     def test_wait_for_pod(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m.CoreV1Api().list_namespaced_pod.side_effect = [
         {'items': [{"kind": "Pod", "apiVersion": "v1", "status": {"phase": "Pending"}, "metadata": {"name": "nginx"}, "spec": {}}]},
         {'items': [{"kind": "Pod", "apiVersion": "v1", "status": {"phase": "Running"}, "metadata": {"name": "nginx"}, "spec": {}}]}]
@@ -618,7 +620,7 @@ class InitTests(unittest.TestCase):
 
     def test_wait_for_pod_wrong_condition(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
             {"kind": "Pod", "apiVersion": "v1", "status": {"phase": "Running"}, "metadata": {"name": "nginx"}, "spec": {}}]}
         with mock.patch("kubernetes.client", m):
@@ -627,7 +629,7 @@ class InitTests(unittest.TestCase):
 
     def test_wait_for_pod_timeout(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
             {"kind": "Pod", "apiVersion": "v1", "status": {"phase": "Running"}, "metadata": {"name": "nginx"}, "spec": {}}]}
         with mock.patch("kubernetes.client", m):
@@ -636,7 +638,7 @@ class InitTests(unittest.TestCase):
 
     def test_wait_for_pod_wrong_type(self):
         m = mock.Mock()
-        kubectl._resource_cache = [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]
+        kubectl.RESOURCE_CACHE = {kubectl.ACTIVE_CONTEXT: [{'api': {'name': 'CoreV1Api', 'version': 'v1', 'group_version': 'v1'}, 'kind': 'Pod', 'name': 'pods', "namespaced": True, "short_names": ["po"], "verbs": ["get", "list", "patch"]}]}
         m.CoreV1Api().list_namespaced_pod.return_value = {'items': [
             {"kind": "Pod", "apiVersion": "v1", "status": {"phase": "Running"}, "metadata": {"name": "nginx"}, "spec": {}}]}
         with mock.patch("kubernetes.client", m):

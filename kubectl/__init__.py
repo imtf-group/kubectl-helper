@@ -21,7 +21,9 @@ from kubectl import exceptions
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 _temp_files = []
-_resource_cache = []
+RESOURCE_CACHE = {}
+CONTEXT_LIST = []
+ACTIVE_CONTEXT = ''
 
 
 def _cleanup_temp_files():
@@ -128,11 +130,10 @@ def _find_container(name: str, namespace: str, container: str = None):
     return container
 
 
-def get_contexts() -> dict:
+def get_contexts() -> (str, list):
     """List all the current contexts from ~/.kube/config or KUBECONFIG
-    :returns: context dict"""
-    _contexts, _ = kubernetes.config.kube_config.list_kube_config_contexts()
-    return _contexts
+    :returns: tuple (active_context, context list)"""
+    return ACTIVE_CONTEXT, CONTEXT_LIST
 
 
 def connect(host: str = None, api_key: str = None,
@@ -149,6 +150,16 @@ def connect(host: str = None, api_key: str = None,
     :raises exceptions.KubectlConfigException: if the connection fails"""
     # pylint: disable=global-statement
     global _temp_files
+    global CONTEXT_LIST
+    global ACTIVE_CONTEXT
+    if not CONTEXT_LIST:
+        try:
+            _contexts, _active = kubernetes.config.kube_config.list_kube_config_contexts()
+        except kubernetes.config.config_exception.ConfigException:
+            _contexts, _active = ([], None)
+        if _active:
+            ACTIVE_CONTEXT = _active['name']
+        CONTEXT_LIST = [_c['name'] for _c in _contexts]
     if not host:
         try:
             kubernetes.config.load_kube_config(context=context)
@@ -178,22 +189,19 @@ def connect(host: str = None, api_key: str = None,
         else:
             configuration.verify_ssl = False
         kubernetes.client.Configuration.set_default(configuration)
-    if not context:
-        try:
-            _, _active = kubernetes.config.kube_config.list_kube_config_contexts()
-        except kubernetes.config.config_exception.ConfigException:
-            _active = None
-        if _active:
-            context = _active['name']
-    return context
+    if context:
+        ACTIVE_CONTEXT = context
+    if ACTIVE_CONTEXT not in CONTEXT_LIST:
+        CONTEXT_LIST += [ACTIVE_CONTEXT]
+    return ACTIVE_CONTEXT
 
 
 def api_resources(obj: str = None) -> dict:
     """From a resource name or alias, extract the API name
     and version to use from api-resources"""
     # pylint: disable=global-statement
-    global _resource_cache
-    if not _resource_cache:
+    if ACTIVE_CONTEXT not in RESOURCE_CACHE:
+        RESOURCE_CACHE[ACTIVE_CONTEXT] = []
         api = kubernetes.client.CoreV1Api()
         _resources = []
         try:
@@ -206,7 +214,7 @@ def api_resources(obj: str = None) -> dict:
                 'name': 'CoreV1Api',
                 'version': 'v1',
                 'group_version': 'v1'}
-            _resource_cache += [res]
+            RESOURCE_CACHE[ACTIVE_CONTEXT] += [res]
         global_api = kubernetes.client.ApisApi()
         api = kubernetes.client.CustomObjectsApi()
         _groups = []
@@ -231,14 +239,14 @@ def api_resources(obj: str = None) -> dict:
                         'group': api_group['name'],
                         'version': version['version'],
                         'group_version': version['group_version']}
-                    _resource_cache += [res]
+                    RESOURCE_CACHE[ACTIVE_CONTEXT] += [res]
     if obj is not None:
-        for _cache in _resource_cache:
+        for _cache in RESOURCE_CACHE[ACTIVE_CONTEXT]:
             if _cache['name'] == obj or _cache['kind'].lower() == obj.lower() or \
                     (_cache['short_names'] and obj in _cache['short_names']):
                 return _cache
         raise exceptions.KubectlResourceTypeException(obj)
-    return _resource_cache
+    return RESOURCE_CACHE[ACTIVE_CONTEXT]
 
 
 def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
