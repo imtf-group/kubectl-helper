@@ -191,7 +191,7 @@ def connect(host: str = None, api_key: str = None,
         kubernetes.client.Configuration.set_default(configuration)
     if context:
         ACTIVE_CONTEXT = context
-    if ACTIVE_CONTEXT not in CONTEXT_LIST:
+    if ACTIVE_CONTEXT and ACTIVE_CONTEXT not in CONTEXT_LIST:
         CONTEXT_LIST += [ACTIVE_CONTEXT]
     return ACTIVE_CONTEXT
 

@@ -3,7 +3,9 @@ import sys
 from unittest import mock
 import unittest
 import tarfile
+import urllib3
 import tempfile
+import types
 import kubernetes.client
 import kubernetes.config
 
@@ -16,11 +18,13 @@ class InitTests(unittest.TestCase):
     def setUp(self):
         kubernetes.client.Configuration._default = None
         kubectl.RESOURCE_CACHE = {}
+        kubectl.CONTEXT_LIST = []
         kubectl.ACTIVE_CONTEXT = ''
         self.maxDiff = None
 
     def test_cleanup_files(self):
-        m = mock.Mock() 
+        m = mock.Mock()
+        m.side_effect = OSError()
         kubectl.connect("http://localhost", "APIKEY", "CERTIFICATE")    
         self.assertTrue(os.path.isfile(kubernetes.client.Configuration._default.ssl_ca_cert))
         with mock.patch('os.remove', m):
@@ -28,12 +32,14 @@ class InitTests(unittest.TestCase):
         m.assert_called_once_with(kubernetes.client.Configuration._default.ssl_ca_cert)
 
     def test_config_with_kubeconfig(self):
-        try:
+        m = mock.Mock()
+        m.list_kube_config_contexts.side_effect = kubernetes.config.config_exception.ConfigException
+        with mock.patch("kubernetes.config.kube_config", m):
             self.assertIsNone(kubernetes.client.Configuration._default)
-            kubectl.connect()
+            kubectl.connect("http://localhost", "APIKEY", "CERTIFICATE")
             self.assertIsNotNone(kubernetes.client.Configuration._default)
-        except kubectl.exceptions.KubectlConfigException:
-            pass
+            self.assertFalse(kubectl.CONTEXT_LIST)
+            self.assertFalse(kubectl.ACTIVE_CONTEXT)
 
     def test_config_with_exception(self):
         m = mock.Mock()
@@ -106,6 +112,16 @@ class InitTests(unittest.TestCase):
         with mock.patch("kubernetes.client", m):
             self.assertEqual(kubectl.api_resources(), results)
             self.assertEqual(kubectl.RESOURCE_CACHE, {'': results})
+
+    def test_get_api_resources_urllib_exception(self):
+        m = mock.Mock()
+        class Pool:
+            host = "toto"
+            port = 80
+        m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.side_effect = urllib3.exceptions.PoolError(Pool(), "error message")
+        with mock.patch("kubernetes.client", m):
+            with self.assertRaises(kubectl.exceptions.KubectlConnectionException):
+                kubectl.api_resources()
 
     def test_api_call_exception_1(self):
         m = mock.Mock()
@@ -1125,6 +1141,70 @@ class InitTests(unittest.TestCase):
         with mock.patch("kubernetes.client", mock_client):
             with self.assertRaises(kubectl.exceptions.KubectlInvalidContainerException):
                 kubectl.cp("LOCALFILE", "nginx:REMOTEFILE", container='another')
+
+
+    def test_read_bytes_from_wsclient_closed(self):
+        ws_mock = mock.Mock()
+        ws_mock.sock.connected = False
+        ws_mock.is_open.return_value = False
+        out, err, closed = kubectl._read_bytes_from_wsclient(ws_mock, timeout=1)
+        self.assertIsNone(out)
+        self.assertIsNone(err)
+        self.assertTrue(closed)
+
+    def test_read_bytes_from_wsclient_no_data(self):
+        ws_mock = mock.Mock()
+        ws_mock.sock.connected = True
+        ws_mock.is_open.return_value = True
+        select_mock = mock.Mock()
+        select_mock.return_value = ([], [], [])
+        with mock.patch("select.select", select_mock):
+            out, err, closed = kubectl._read_bytes_from_wsclient(ws_mock, timeout=1)
+            self.assertIsNone(out)
+            self.assertIsNone(err)
+            self.assertFalse(closed)
+
+    def test_read_bytes_from_wsclient_close_frame(self):
+        ws_mock = mock.Mock()
+        ws_mock.sock.connected = True
+        ws_mock.sock.sock = object()
+        ws_mock.is_open.return_value = True
+        ws_mock.sock.recv_data_frame.return_value = (0x8, types.SimpleNamespace(data=b""))
+        select_mock = mock.Mock()
+        select_mock.return_value = ([ws_mock.sock.sock], [], [])
+        with mock.patch("select.select", select_mock):
+            out, err, closed = kubectl._read_bytes_from_wsclient(ws_mock, timeout=1)
+            self.assertIsNone(out)
+            self.assertIsNone(err)
+            self.assertFalse(closed)
+
+    def test_read_bytes_from_wsclient_stdout(self):
+        ws_mock = mock.Mock()
+        ws_mock.sock.connected = True
+        ws_mock.sock.sock = object()
+        ws_mock.is_open.return_value = True
+        ws_mock.sock.recv_data_frame.return_value = (0x2, types.SimpleNamespace(data=b"\x01hello world"))
+        select_mock = mock.Mock()
+        select_mock.return_value = ([ws_mock.sock.sock], [], [])
+        with mock.patch("select.select", select_mock):
+            out, err, closed = kubectl._read_bytes_from_wsclient(ws_mock, timeout=1)
+            self.assertEqual(out, b"hello world")
+            self.assertIsNone(err)
+            self.assertFalse(closed)
+
+    def test_read_bytes_from_wsclient_stderr(self):
+        ws_mock = mock.Mock()
+        ws_mock.sock.connected = True
+        ws_mock.sock.sock = object()
+        ws_mock.is_open.return_value = True
+        ws_mock.sock.recv_data_frame.return_value = (0x2, types.SimpleNamespace(data=b"\x02error"))
+        select_mock = mock.Mock()
+        select_mock.return_value = ([ws_mock.sock.sock], [], [])
+        with mock.patch("select.select", select_mock):
+            out, err, closed = kubectl._read_bytes_from_wsclient(ws_mock, timeout=1)
+            self.assertIsNone(out)
+            self.assertEqual(err, b"error")
+            self.assertFalse(closed)
 
 
 if __name__ == "__main__":
