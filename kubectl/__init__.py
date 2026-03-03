@@ -252,10 +252,6 @@ def api_resources(obj: str = None) -> dict:
 def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
     """Execute calls directly to python-kubernetes"""
     ftn = f"{verb}_{resource}"
-    name = None
-    if verb == 'list' and 'name' in opts:
-        name = opts['name']
-        del opts['name']
     api = None
     try:
         api = getattr(kubernetes.client, api_resource)()
@@ -271,22 +267,11 @@ def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
         except (ValueError, AttributeError):
             pass
         raise exceptions.KubectlBaseException(body) from err
-    # pylint: disable=no-else-return
-    if verb == 'list':
-        if 'to_dict' in dir(objs):
-            objs = objs.to_dict()['items']
-        else:
-            objs = objs['items']
-        if name is None:
-            return objs
-        for obj in objs:
-            if obj['metadata']['name'] == name:
-                return obj
-        return {}
-    else:
-        if 'to_dict' in dir(objs):
-            return objs.to_dict()
-        return objs
+    if 'to_dict' in dir(objs):
+        objs = objs.to_dict()
+    if isinstance(objs, dict) and 'items' in objs:
+        objs = objs['items']
+    return objs
 
 
 def scale(obj: str, name: str, namespace: str = None,
@@ -316,7 +301,8 @@ def scale(obj: str, name: str, namespace: str = None,
 
 
 def get(obj: str, name: str = None, namespace: str = None,
-        labels: str = None, all_namespaces: bool = False, ) -> dict:
+        labels: str = None, all_namespaces: bool = False,
+        ignore_not_found: bool = False) -> dict:
     """Get or list resource(s) (similar to 'kubectl get')
     :param obj: resource type
     :param name: resource name
@@ -325,13 +311,25 @@ def get(obj: str, name: str = None, namespace: str = None,
     :param all_namespaces: scope where the resource must be gotten from
     :returns: data similar to 'kubectl get' in JSON format
     :raises exceptions.KubectlMethodException: if the resource cannot be 'gotten'"""
+    if name and labels:
+        raise exceptions.KubectlBaseException(
+            "error: name cannot be provided when a selector is specified")
+    opts = {}
     resource = api_resources(obj)
+    if name:
+        verb = "get"
+        opts["name"] = name
+    else:
+        verb = "list"
     verb = 'get' if name else 'list'
     if verb not in resource['verbs']:
         raise exceptions.KubectlMethodException
     namespace = namespace or 'default'
-    opts = {"label_selector": labels, "name": name}
+    if labels:
+        opts["label_selector"] = labels
     if resource['api']['name'] == 'CoreV1Api':
+        if verb == 'get':
+            verb = 'read'
         ftn = camel_to_snake(resource['kind'])
         if resource['namespaced'] is True:
             if all_namespaces is True:
@@ -348,7 +346,12 @@ def get(obj: str, name: str = None, namespace: str = None,
             opts['namespace'] = namespace
         else:
             ftn = 'cluster_custom_object'
-    return camel_to_snake_dict(_api_call(resource['api']['name'], 'list', ftn, **opts))
+    try:
+        return camel_to_snake_dict(_api_call(resource['api']['name'], verb, ftn, **opts))
+    except exceptions.KubectlBaseException as err:
+        if 'not found' in err.args[0] and ignore_not_found:
+            return {}
+        raise err
 
 
 def delete(obj: str, name: str, namespace: str = None, dry_run: bool = False) -> dict:
@@ -620,7 +623,7 @@ def apply(body: dict, dry_run: bool = False) -> dict:
     name = body['metadata']['name']
     namespace = body['metadata'].get('namespace', None)
     obj = body['kind']
-    if get(obj, name, namespace) == {}:
+    if get(obj, name, namespace, ignore_not_found=True) == {}:
         return create(obj, name, namespace, body, dry_run=dry_run)
     return patch(obj, name, namespace, body, dry_run=dry_run)
 
