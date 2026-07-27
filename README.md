@@ -7,6 +7,8 @@
   * [snake\_to\_camel\_dict](#kubectl.snake_to_camel_dict)
   * [get\_contexts](#kubectl.get_contexts)
   * [connect](#kubectl.connect)
+  * [reset\_state](#kubectl.reset_state)
+  * [invalidate\_resource\_cache](#kubectl.invalidate_resource_cache)
   * [api\_resources](#kubectl.api_resources)
   * [scale](#kubectl.scale)
   * [get](#kubectl.get)
@@ -83,14 +85,14 @@ Ensure fields are in Camel Case
 #### get\_contexts
 
 ```python
-def get_contexts() -> dict
+def get_contexts() -> (str, list)
 ```
 
 List all the current contexts from ~/.kube/config or KUBECONFIG
 
 **Returns**:
 
-context dict
+tuple (active_context, context list)
 
 <a id="kubectl.connect"></a>
 
@@ -124,12 +126,33 @@ If unset, the SSL check is disabled
 
 used context
 
+<a id="kubectl.reset_state"></a>
+
+#### reset\_state
+
+```python
+def reset_state()
+```
+
+Reset contexts and cached API resources.
+
+<a id="kubectl.invalidate_resource_cache"></a>
+
+#### invalidate\_resource\_cache
+
+```python
+def invalidate_resource_cache(context: str = None)
+```
+
+Invalidate cached API resources. If context is omitted, all cached contexts are
+invalidated.
+
 <a id="kubectl.api_resources"></a>
 
 #### api\_resources
 
 ```python
-def api_resources(obj: str = None) -> dict
+def api_resources(obj: str = None, refresh: bool = False) -> dict
 ```
 
 From a resource name or alias, extract the API name

@@ -675,7 +675,7 @@ class InitTests(unittest.TestCase):
                         mock_stderr.write.assert_called_once_with(['not found\n'])
                         mock_stdout.write.assert_called_once_with(['/usr\n', '/etc\n', '/bin\n'])
                         mock_stream.stream.assert_called_once_with(
-                            'mock_function', 'foobar', 'current', container='first', command='ls -d /',
+                            'mock_function', 'foobar', 'current', container='first', command=['ls', '-d', '/'],
                             stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False)
 
     def test_exec(self):
@@ -699,7 +699,7 @@ class InitTests(unittest.TestCase):
             with mock.patch("kubernetes.stream", mock_stream):
                 self.assertEqual(kubectl.exec("foobar", "ls -d /", "current"), (True, '/usr\n/etc\n/bin\n'))
                 mock_stream.stream.assert_called_once_with(
-                    'mock_function', 'foobar', 'current', container='first', command='ls -d /',
+                    'mock_function', 'foobar', 'current', container='first', command=['ls', '-d', '/'],
                     stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False)
 
 
@@ -725,7 +725,7 @@ class InitTests(unittest.TestCase):
             with mock.patch("kubernetes.stream", mock_stream):
                 self.assertEqual(kubectl.exec("foobar", "ls -d /", "current"), (True, '/usr\n/etc\n/bin\n'))
                 mock_stream.stream.assert_called_once_with(
-                    'mock_function', 'foobar', 'current', container='second', command='ls -d /',
+                    'mock_function', 'foobar', 'current', container='second', command=['ls', '-d', '/'],
                     stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False)
 
     def test_exec_wrong_container(self):
@@ -1187,6 +1187,37 @@ class InitTests(unittest.TestCase):
             self.assertIsNone(out)
             self.assertEqual(err, b"error")
             self.assertFalse(closed)
+
+    def test_reset_state(self):
+        kubectl.RESOURCE_CACHE = {'ctx': [{'name': 'pods'}]}
+        kubectl.CONTEXT_LIST = ['ctx']
+        kubectl.ACTIVE_CONTEXT = 'ctx'
+        kubectl.reset_state()
+        self.assertEqual(kubectl.RESOURCE_CACHE, {})
+        self.assertEqual(kubectl.CONTEXT_LIST, [])
+        self.assertEqual(kubectl.ACTIVE_CONTEXT, '')
+
+    def test_invalidate_resource_cache(self):
+        kubectl.RESOURCE_CACHE = {'ctx1': ['one'], 'ctx2': ['two']}
+        kubectl.invalidate_resource_cache('ctx1')
+        self.assertEqual(kubectl.RESOURCE_CACHE, {'ctx2': ['two']})
+        kubectl.invalidate_resource_cache()
+        self.assertEqual(kubectl.RESOURCE_CACHE, {})
+
+    def test_api_resources_refresh(self):
+        m = mock.Mock()
+        m.CoreV1Api.return_value.get_api_resources.return_value.to_dict.return_value = {
+            'resources': [{
+                'kind': 'Pod', 'name': 'pods',
+                'namespaced': True, 'short_names': ['po'],
+                'verbs': ['get', 'list']}]
+        }
+        m.ApisApi.return_value.get_api_versions.return_value.to_dict.return_value = {
+            'groups': []}
+        kubectl.RESOURCE_CACHE = {'': [{'kind': 'Service', 'name': 'services'}]}
+        with mock.patch("kubernetes.client", m):
+            self.assertEqual(kubectl.api_resources(refresh=True)[0]['name'], 'pods')
+        m.CoreV1Api.return_value.get_api_resources.assert_called_once_with()
 
 
 if __name__ == "__main__":
