@@ -675,7 +675,7 @@ class InitTests(unittest.TestCase):
                         mock_stderr.write.assert_called_once_with(['not found\n'])
                         mock_stdout.write.assert_called_once_with(['/usr\n', '/etc\n', '/bin\n'])
                         mock_stream.stream.assert_called_once_with(
-                            'mock_function', 'foobar', 'current', container='first', command='ls -d /',
+                            'mock_function', 'foobar', 'current', container='first', command=['ls', '-d', '/'],
                             stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False)
 
     def test_exec(self):
@@ -699,7 +699,7 @@ class InitTests(unittest.TestCase):
             with mock.patch("kubernetes.stream", mock_stream):
                 self.assertEqual(kubectl.exec("foobar", "ls -d /", "current"), (True, '/usr\n/etc\n/bin\n'))
                 mock_stream.stream.assert_called_once_with(
-                    'mock_function', 'foobar', 'current', container='first', command='ls -d /',
+                    'mock_function', 'foobar', 'current', container='first', command=['ls', '-d', '/'],
                     stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False)
 
 
@@ -725,7 +725,7 @@ class InitTests(unittest.TestCase):
             with mock.patch("kubernetes.stream", mock_stream):
                 self.assertEqual(kubectl.exec("foobar", "ls -d /", "current"), (True, '/usr\n/etc\n/bin\n'))
                 mock_stream.stream.assert_called_once_with(
-                    'mock_function', 'foobar', 'current', container='second', command='ls -d /',
+                    'mock_function', 'foobar', 'current', container='second', command=['ls', '-d', '/'],
                     stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False)
 
     def test_exec_wrong_container(self):

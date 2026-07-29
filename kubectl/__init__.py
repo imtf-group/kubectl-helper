@@ -37,6 +37,30 @@ def _cleanup_temp_files():
     _temp_files = []
 
 
+def parse_command(cmd: str) -> list:
+    """ Convert string to list, excaping quotes """
+    _retval = []
+    _i = 0
+    _substr = ""
+    while _i < len(cmd):
+        if cmd[_i] == "'" or cmd[_i] == '"':
+            _sep = cmd[_i]
+            _i += 1
+            while cmd[_i] != _sep:
+                _substr += cmd[_i]
+                _i += 1
+        elif cmd[_i] == " ":
+            if _substr:
+                _retval += [_substr]
+                _substr = ""
+        else:
+            _substr += cmd[_i]
+        _i += 1
+    if _substr:
+        _retval += [_substr]
+    return _retval
+
+
 def camel_to_snake(name: str) -> str:
     """Converts Camel-style string to Snake-style string"""
     name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
@@ -104,14 +128,19 @@ def _read_bytes_from_wsclient(
 
 
 def _find_container(name: str, namespace: str, container: str = None):
-    api = kubernetes.client.CoreV1Api()
-    containers = []
-    resp = {}
+    api_client = kubernetes.client.ApiClient()
     try:
-        resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
-    except urllib3.exceptions.PoolError as e:
-        raise exceptions.KubectlConnectionException(
-            f"{e.pool.host}:{e.pool.port}")
+        api = kubernetes.client.CoreV1Api(api_client)
+        containers = []
+        resp = {}
+        try:
+            resp = api.read_namespaced_pod(name=name, namespace=namespace).to_dict()
+        except urllib3.exceptions.PoolError as e:
+            raise exceptions.KubectlConnectionException(
+                f"{e.pool.host}:{e.pool.port}")
+    finally:
+        api_client.rest_client.pool_manager.clear()
+        api_client.close()
     if resp['spec']['containers']:
         containers += [ctn['name'] for ctn in resp['spec']['containers']]
     if resp['spec'].get('init_containers'):
@@ -200,46 +229,51 @@ def api_resources(obj: str = None) -> dict:
     """From a resource name or alias, extract the API name
     and version to use from api-resources"""
     # pylint: disable=global-statement
-    if ACTIVE_CONTEXT not in RESOURCE_CACHE:
-        RESOURCE_CACHE[ACTIVE_CONTEXT] = []
-        api = kubernetes.client.CoreV1Api()
-        _resources = []
-        try:
-            _resources = api.get_api_resources().to_dict()['resources']
-        except urllib3.exceptions.PoolError as e:
-            raise exceptions.KubectlConnectionException(
-                f"{e.pool.host}:{e.pool.port}")
-        for res in _resources:
-            res['api'] = {
-                'name': 'CoreV1Api',
-                'version': 'v1',
-                'group_version': 'v1'}
-            RESOURCE_CACHE[ACTIVE_CONTEXT] += [res]
-        global_api = kubernetes.client.ApisApi()
-        api = kubernetes.client.CustomObjectsApi()
-        _groups = []
-        try:
-            _groups = global_api.get_api_versions().to_dict()['groups']
-        except urllib3.exceptions.PoolError as e:
-            raise exceptions.KubectlConnectionException(
-                f"{e.pool.host}:{e.pool.port}")
-        for api_group in _groups:
-            for version in api_group['versions']:
-                _resources = []
-                try:
-                    _resources = api.get_api_resources(
-                        api_group['name'],
-                        version['version']).to_dict()['resources']
-                except urllib3.exceptions.PoolError as e:
-                    raise exceptions.KubectlConnectionException(
-                        f"{e.pool.host}:{e.pool.port}")
-                for res in _resources:
-                    res['api'] = {
-                        'name': 'CustomObjectsApi',
-                        'group': api_group['name'],
-                        'version': version['version'],
-                        'group_version': version['group_version']}
-                    RESOURCE_CACHE[ACTIVE_CONTEXT] += [res]
+    api_client = kubernetes.client.ApiClient()
+    try:
+        if ACTIVE_CONTEXT not in RESOURCE_CACHE:
+            RESOURCE_CACHE[ACTIVE_CONTEXT] = []
+            api = kubernetes.client.CoreV1Api(api_client)
+            _resources = []
+            try:
+                _resources = api.get_api_resources().to_dict()['resources']
+            except urllib3.exceptions.PoolError as e:
+                raise exceptions.KubectlConnectionException(
+                    f"{e.pool.host}:{e.pool.port}")
+            for res in _resources:
+                res['api'] = {
+                    'name': 'CoreV1Api',
+                    'version': 'v1',
+                    'group_version': 'v1'}
+                RESOURCE_CACHE[ACTIVE_CONTEXT] += [res]
+            global_api = kubernetes.client.ApisApi(api_client)
+            api = kubernetes.client.CustomObjectsApi(api_client)
+            _groups = []
+            try:
+                _groups = global_api.get_api_versions().to_dict()['groups']
+            except urllib3.exceptions.PoolError as e:
+                raise exceptions.KubectlConnectionException(
+                    f"{e.pool.host}:{e.pool.port}")
+            for api_group in _groups:
+                for version in api_group['versions']:
+                    _resources = []
+                    try:
+                        _resources = api.get_api_resources(
+                            api_group['name'],
+                            version['version']).to_dict()['resources']
+                    except urllib3.exceptions.PoolError as e:
+                        raise exceptions.KubectlConnectionException(
+                            f"{e.pool.host}:{e.pool.port}")
+                    for res in _resources:
+                        res['api'] = {
+                            'name': 'CustomObjectsApi',
+                            'group': api_group['name'],
+                            'version': version['version'],
+                            'group_version': version['group_version']}
+                        RESOURCE_CACHE[ACTIVE_CONTEXT] += [res]
+    finally:
+        api_client.rest_client.pool_manager.clear()
+        api_client.close()
     if obj is not None:
         for _cache in RESOURCE_CACHE[ACTIVE_CONTEXT]:
             if _cache['name'] == obj or _cache['kind'].lower() == obj.lower() or \
@@ -253,20 +287,25 @@ def _api_call(api_resource: str, verb: str, resource: str, **opts) -> dict:
     """Execute calls directly to python-kubernetes"""
     ftn = f"{verb}_{resource}"
     api = None
+    api_client = kubernetes.client.ApiClient()
     try:
-        api = getattr(kubernetes.client, api_resource)()
-    except urllib3.exceptions.PoolError as e:
-        raise exceptions.KubectlConnectionException(
-            f"{e.pool.host}:{e.pool.port}")
-    try:
-        objs = getattr(api, ftn)(**opts)
-    except kubernetes.client.rest.ApiException as err:
-        body = err.body
         try:
-            body = json.loads(body)['message']
-        except (ValueError, AttributeError):
-            pass
-        raise exceptions.KubectlBaseException(body) from err
+            api = getattr(kubernetes.client, api_resource)(api_client)
+        except urllib3.exceptions.PoolError as e:
+            raise exceptions.KubectlConnectionException(
+                f"{e.pool.host}:{e.pool.port}")
+        try:
+            objs = getattr(api, ftn)(**opts)
+        except kubernetes.client.rest.ApiException as err:
+            body = err.body
+            try:
+                body = json.loads(body)['message']
+            except (ValueError, AttributeError):
+                pass
+            raise exceptions.KubectlBaseException(body) from err
+    finally:
+        api_client.rest_client.pool_manager.clear()
+        api_client.close()
     if 'to_dict' in dir(objs):
         objs = objs.to_dict()
     if isinstance(objs, dict) and 'items' in objs:
@@ -597,22 +636,27 @@ def logs(name: str, namespace: str = None, container: str = None,
     :raises exceptions.KubectlInvalidContainerException: if the container doesnt exist
     :raises exceptions.KubectlBaseException: if the pod is not ready"""
     namespace = namespace or 'default'
-    api = kubernetes.client.CoreV1Api()
-    container = _find_container(name, namespace, container)
+    api_client = kubernetes.client.ApiClient()
     try:
-        return api.read_namespaced_pod_log(
-            name,
-            namespace,
-            container=container,
-            follow=follow,
-            _preload_content=False)
-    except kubernetes.client.exceptions.ApiException as err:
-        body = err.body
+        api = kubernetes.client.CoreV1Api(api_client)
+        container = _find_container(name, namespace, container)
         try:
-            body = json.loads(body)['message']
-        except (ValueError, AttributeError):
-            pass
-        raise exceptions.KubectlBaseException(body) from err
+            return api.read_namespaced_pod_log(
+                name,
+                namespace,
+                container=container,
+                follow=follow,
+                _preload_content=False)
+        except kubernetes.client.exceptions.ApiException as err:
+            body = err.body
+            try:
+                body = json.loads(body)['message']
+            except (ValueError, AttributeError):
+                pass
+            raise exceptions.KubectlBaseException(body) from err
+    finally:
+        api_client.rest_client.pool_manager.clear()
+        api_client.close()
 
 
 def apply(body: dict, dry_run: bool = False) -> dict:
@@ -655,25 +699,30 @@ def exec(name: str, command: list, namespace: str = None,
     :returns: list of command execution exit code and return value
     :raises exceptions.KubectlInvalidContainerException: if the container doesnt exist"""
     namespace = namespace or 'default'
-    api = kubernetes.client.CoreV1Api()
-    container = _find_container(name, namespace, container)
-    resp = kubernetes.stream.stream(
-        api.connect_get_namespaced_pod_exec,
-        name,
-        namespace,
-        container=container,
-        command=command,
-        stderr=True, stdin=False,
-        stdout=True, tty=False,
-        _preload_content=False)
-    while resp.is_open():
-        resp.update(timeout=1)
-        if resp.peek_stdout() and stdout is True:
-            sys.stdout.write(resp.read_stdout())
-        if resp.peek_stderr() and stderr is True:
-            sys.stderr.write(resp.read_stderr())
-    err = resp.read_channel(kubernetes.stream.ws_client.ERROR_CHANNEL)
-    return json.loads(err)["status"] == "Success", ''.join(resp.read_all())
+    api_client = kubernetes.client.ApiClient()
+    try:
+        api = kubernetes.client.CoreV1Api(api_client)
+        container = _find_container(name, namespace, container)
+        resp = kubernetes.stream.stream(
+            api.connect_get_namespaced_pod_exec,
+            name,
+            namespace,
+            container=container,
+            command=parse_command(command),
+            stderr=True, stdin=False,
+            stdout=True, tty=False,
+            _preload_content=False)
+        while resp.is_open():
+            resp.update(timeout=1)
+            if resp.peek_stdout() and stdout is True:
+                sys.stdout.write(resp.read_stdout())
+            if resp.peek_stderr() and stderr is True:
+                sys.stderr.write(resp.read_stderr())
+        err = resp.read_channel(kubernetes.stream.ws_client.ERROR_CHANNEL)
+        return json.loads(err)["status"] == "Success", ''.join(resp.read_all())
+    finally:
+        api_client.rest_client.pool_manager.clear()
+        api_client.close()
 
 
 # pylint: disable=too-many-branches
@@ -695,109 +744,114 @@ def cp(source: str, destination: str,
         raise exceptions.KubectlBaseException(
             'error: one of src or dest must be a remote file specification')
     namespace = namespace or 'default'
-    api = kubernetes.client.CoreV1Api()
-    if len(destination.split(':')) > 1:
-        pod_name, remote_path = destination.split(':', 1)
-        if remote_path.endswith('/'):
-            remote_path = remote_path[:-1]
-        if source.endswith('/'):
-            source = source[:-1]
-        container = _find_container(pod_name, namespace, container)
-        if exec(pod_name, ["test", "-d", remote_path], namespace, container)[0] is True:
-            _dest_path = os.path.join(remote_path, os.path.basename(source))
-        else:
-            _dest_path = remote_path
-        command = ['tar', 'xf', '-', '-C', "/"]
-        resp = kubernetes.stream.stream(
-            api.connect_get_namespaced_pod_exec,
-            pod_name,
-            namespace,
-            container=container,
-            command=command,
-            stderr=True, stdin=True,
-            stdout=True, tty=False,
-            _preload_content=False)
+    api_client = kubernetes.client.ApiClient()
+    try:
+        api = kubernetes.client.CoreV1Api(api_client)
+        if len(destination.split(':')) > 1:
+            pod_name, remote_path = destination.split(':', 1)
+            if remote_path.endswith('/'):
+                remote_path = remote_path[:-1]
+            if source.endswith('/'):
+                source = source[:-1]
+            container = _find_container(pod_name, namespace, container)
+            if exec(pod_name, ["test", "-d", remote_path], namespace, container)[0] is True:
+                _dest_path = os.path.join(remote_path, os.path.basename(source))
+            else:
+                _dest_path = remote_path
+            command = ['tar', 'xf', '-', '-C', "/"]
+            resp = kubernetes.stream.stream(
+                api.connect_get_namespaced_pod_exec,
+                pod_name,
+                namespace,
+                container=container,
+                command=command,
+                stderr=True, stdin=True,
+                stdout=True, tty=False,
+                _preload_content=False)
 
-        _files = []
-        if os.path.isdir(source):
-            for _dir, _, _file_list in os.walk(source):
-                _files += [
-                    (os.path.join(_dir, _file), os.path.join(
-                        _dest_path, _dir.replace(source, '.', 1), _file))
-                    for _file in _file_list]
-        else:
-            _files = [(source, _dest_path)]
-        with tempfile.TemporaryFile() as tar_buffer:
-            with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
-                for _file in _files:
-                    tar.add(_file[0], _file[1])
+            _files = []
+            if os.path.isdir(source):
+                for _dir, _, _file_list in os.walk(source):
+                    _files += [
+                        (os.path.join(_dir, _file), os.path.join(
+                            _dest_path, _dir.replace(source, '.', 1), _file))
+                        for _file in _file_list]
+            else:
+                _files = [(source, _dest_path)]
+            with tempfile.TemporaryFile() as tar_buffer:
+                with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
+                    for _file in _files:
+                        tar.add(_file[0], _file[1])
 
-            tar_buffer.seek(0)
-            commands = []
-            commands.append(tar_buffer.read())
+                tar_buffer.seek(0)
+                commands = []
+                commands.append(tar_buffer.read())
 
-            while resp.is_open():
-                resp.update(timeout=1)
-                if resp.peek_stdout():
-                    print(f"STDOUT: {resp.read_stdout()}")
-                if resp.peek_stderr():
-                    print(f"STDERR: {resp.read_stderr()}")
-                if commands:
-                    c = commands.pop(0)
-                    try:
-                        c = c.decode()
-                    except UnicodeDecodeError:
-                        pass
-                    resp.write_stdin(c)
-                else:
-                    break
-            resp.close()
-    else:
-        pod_name, remote_path = source.split(':', 1)
-        container = _find_container(pod_name, namespace, container)
-        command = ['tar', 'cf', '-', remote_path]
-        if exec(pod_name, ["test", "-d", remote_path], namespace, container)[0] is True:
-            if not os.path.isdir(destination):
-                os.mkdir(destination)
-        resp = kubernetes.stream.stream(
-            api.connect_get_namespaced_pod_exec,
-            pod_name,
-            namespace,
-            container=container,
-            command=command,
-            stderr=True, stdin=False,
-            stdout=True, tty=False,
-            _preload_content=False)
-        with tempfile.TemporaryFile() as tar_buffer:
-            while True:
-                # workaround to handle big binary files
-                out, err, closed = _read_bytes_from_wsclient(resp)
-                if out:
-                    tar_buffer.write(out)
-                if err:
-                    print(f"STDERR: {err.decode()}")
-                if closed:
-                    break
-            resp.close()
-            tar_buffer.flush()
-            tar_buffer.seek(0)
-            if remote_path.startswith('/'):
-                remote_path = remote_path[1:]
-            with tarfile.open(fileobj=tar_buffer, mode='r:') as tar:
-                if not tar.getmembers():
-                    return False
-                for member in tar.getmembers():
-                    if os.path.isdir(destination):
-                        local_file = os.path.join(
-                            destination, member.name.replace(remote_path, '.', 1))
-                        if member.isdir():
-                            if not os.path.isdir(local_file):
-                                os.mkdir(local_file)
-                            continue
+                while resp.is_open():
+                    resp.update(timeout=1)
+                    if resp.peek_stdout():
+                        print(f"STDOUT: {resp.read_stdout()}")
+                    if resp.peek_stderr():
+                        print(f"STDERR: {resp.read_stderr()}")
+                    if commands:
+                        c = commands.pop(0)
+                        try:
+                            c = c.decode()
+                        except UnicodeDecodeError:
+                            pass
+                        resp.write_stdin(c)
                     else:
-                        local_file = destination
+                        break
+                resp.close()
+        else:
+            pod_name, remote_path = source.split(':', 1)
+            container = _find_container(pod_name, namespace, container)
+            command = ['tar', 'cf', '-', remote_path]
+            if exec(pod_name, ["test", "-d", remote_path], namespace, container)[0] is True:
+                if not os.path.isdir(destination):
+                    os.mkdir(destination)
+            resp = kubernetes.stream.stream(
+                api.connect_get_namespaced_pod_exec,
+                pod_name,
+                namespace,
+                container=container,
+                command=command,
+                stderr=True, stdin=False,
+                stdout=True, tty=False,
+                _preload_content=False)
+            with tempfile.TemporaryFile() as tar_buffer:
+                while True:
+                    # workaround to handle big binary files
+                    out, err, closed = _read_bytes_from_wsclient(resp)
+                    if out:
+                        tar_buffer.write(out)
+                    if err:
+                        print(f"STDERR: {err.decode()}")
+                    if closed:
+                        break
+                resp.close()
+                tar_buffer.flush()
+                tar_buffer.seek(0)
+                if remote_path.startswith('/'):
+                    remote_path = remote_path[1:]
+                with tarfile.open(fileobj=tar_buffer, mode='r:') as tar:
+                    if not tar.getmembers():
+                        return False
+                    for member in tar.getmembers():
+                        if os.path.isdir(destination):
+                            local_file = os.path.join(
+                                destination, member.name.replace(remote_path, '.', 1))
+                            if member.isdir():
+                                if not os.path.isdir(local_file):
+                                    os.mkdir(local_file)
+                                continue
+                        else:
+                            local_file = destination
 
-                    tar.makefile(member, local_file)
+                        tar.makefile(member, local_file)
+    finally:
+        api_client.rest_client.pool_manager.clear()
+        api_client.close()
     return True
 
 
